@@ -1,0 +1,123 @@
+body {
+    background-color: #1a1d23;
+    color: #e0e0e0;
+}
+
+.navbar-brand {
+    font-weight: bold;
+}
+
+.table {
+    color: #e0e0e0;
+}
+
+.table-bordered {
+    border-color: #3a3f4b;
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.table-dark {
+    background-color: #2a2d35;
+}
+
+.card {
+    background-color: #22252d;
+    border-color: #3a3f4b;
+}
+
+.card-header {
+    background-color: #2a2d35;
+    border-color: #3a3f4b;
+    color: #e0e0e0;
+}
+
+.form-control, .form-select {
+    background-color: #2a2d35;
+    border-color: #3a3f4b;
+    color: #e0e0e0;
+}
+
+.form-control:focus, .form-select:focus {
+    background-color: #2a2d35;
+    border-color: #5a9fd4;
+    color: #e0e0e0;
+    box-shadow: 0 0 0 0.2rem rgba(90, 159, 212, 0.25);
+}
+
+.drop-zone {
+    border: 2px dashed #5a9fd4;
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.drop-zone:hover, .drop-zone.dragover {
+    background-color: rgba(90, 159, 212, 0.1);
+}
+
+.drop-zone input[type="file"] {
+    margin-top: 0.5rem;
+}
+
+.text-success {
+    color: #4caf50 !important;
+}
+
+.text-danger {
+    color: #f44336 !important;
+}
+
+.badge {
+    font-size: 0.8em;
+}
+
+/* Region sections */
+.region-section {
+    background-color: #22252d;
+    border-radius: 8px;
+    padding: 1.2rem;
+    border: 1px solid #3a3f4b;
+}
+
+.region-title {
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+}
+
+.region-badge {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 4px;
+    font-size: 1rem;
+    font-weight: bold;
+    color: #fff;
+}
+
+.region-badge.valley {
+    background: linear-gradient(135deg, #4a7c59, #6fa87a);
+}
+
+.region-badge.wuling {
+    background: linear-gradient(135deg, #7c5a4a, #a87a6f);
+}
+
+/* Loading spinner */
+.spinner-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 9999;
+    justify-content: center;
+    align-items: center;
+}
+
+.spinner-overlay.active {
+    display: flex;
+}
