@@ -1,44 +1,41 @@
-from paddleocr import PaddleOCR
+import easyocr
 
 _ocr_instance = None
 
 
 def get_ocr():
-    """Get or create PaddleOCR singleton instance."""
+    """Get or create EasyOCR reader singleton."""
     global _ocr_instance
     if _ocr_instance is None:
-        _ocr_instance = PaddleOCR(
-            use_angle_cls=True,
-            lang='ch',
-            use_gpu=False,
-            show_log=False,
-        )
+        _ocr_instance = easyocr.Reader(['ch_tra', 'en'], gpu=False)
     return _ocr_instance
 
 
 def recognize(image_path):
     """
     Run OCR on an image file.
-    Returns list of (bounding_box, text, confidence) tuples.
+    Returns list of dicts with bbox, text, confidence, center_y, center_x.
     """
-    ocr = get_ocr()
-    result = ocr.ocr(image_path, cls=True)
+    reader = get_ocr()
+    result = reader.readtext(image_path)
 
     parsed = []
-    if result and result[0]:
-        for line in result[0]:
-            bbox = line[0]  # [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
-            text = line[1][0]
-            confidence = line[1][1]
-            # Calculate center y for row grouping
-            center_y = (bbox[0][1] + bbox[2][1]) / 2
-            center_x = (bbox[0][0] + bbox[2][0]) / 2
-            parsed.append({
-                'bbox': bbox,
-                'text': text,
-                'confidence': confidence,
-                'center_y': center_y,
-                'center_x': center_x,
-            })
+    for item in result:
+        if len(item) == 3:
+            bbox, text, confidence = item
+        elif len(item) == 2:
+            bbox, text = item
+            confidence = 0.0
+        else:
+            continue
+        center_y = (bbox[0][1] + bbox[2][1]) / 2
+        center_x = (bbox[0][0] + bbox[2][0]) / 2
+        parsed.append({
+            'bbox': bbox,
+            'text': text,
+            'confidence': confidence,
+            'center_y': center_y,
+            'center_x': center_x,
+        })
 
     return parsed

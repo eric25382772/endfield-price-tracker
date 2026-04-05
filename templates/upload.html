@@ -16,9 +16,9 @@
                     </div>
                     <div class="mb-3">
                         <label class="form-label">上傳遊戲截圖</label>
-                        <div class="drop-zone" id="dropZone">
-                            <p>拖放截圖到此處，或點擊選擇檔案</p>
-                            <input type="file" name="screenshot" accept="image/*" required
+                        <div class="drop-zone" id="dropZone" tabindex="0">
+                            <p>Ctrl+V 貼上截圖、拖放截圖、或點擊選擇檔案</p>
+                            <input type="file" name="screenshot" accept="image/*"
                                    class="form-control" id="fileInput">
                         </div>
                     </div>
@@ -39,8 +39,8 @@
                 <ol>
                     <li>在遊戲中打開「物資轉運」/交易所畫面</li>
                     <li>確保物品名稱和價格都在畫面中</li>
-                    <li>按 <kbd>F12</kbd> 或 <kbd>PrtSc</kbd> 截圖</li>
-                    <li>選擇對應地區後上傳截圖</li>
+                    <li>按 <kbd>F1</kbd>(Snipaste) 或 <kbd>PrtSc</kbd> 截圖</li>
+                    <li>直接 <kbd>Ctrl+V</kbd> 貼上，或選擇檔案上傳</li>
                     <li>確認 OCR 辨識結果後儲存</li>
                 </ol>
                 <div class="alert alert-info">

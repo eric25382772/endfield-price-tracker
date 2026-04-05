@@ -47,7 +47,8 @@ def parse_ocr_results(ocr_results, items_db):
                     scorer=fuzz.partial_ratio
                 )
                 if match_result:
-                    matched_name, score, _ = match_result
+                    matched_name = match_result[0]
+                    score = match_result[1]
                     if score >= FUZZY_MATCH_THRESHOLD and (item_name is None or score > best_confidence):
                         item_name = matched_name
                         item_id = item_name_to_id.get(matched_name)
