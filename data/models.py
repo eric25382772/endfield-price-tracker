@@ -40,6 +40,20 @@ def init_db():
         )
     """)
 
+    # 好友價格紀錄
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS friend_prices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id INTEGER NOT NULL REFERENCES items(id),
+            friend_name TEXT NOT NULL DEFAULT '好友',
+            market_price INTEGER NOT NULL,
+            game_date TEXT NOT NULL,
+            recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            source TEXT DEFAULT 'ocr',
+            UNIQUE(item_id, friend_name, game_date)
+        )
+    """)
+
     # 購買配額紀錄
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS quotas (

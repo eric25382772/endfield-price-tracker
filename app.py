@@ -5,7 +5,9 @@ from data.models import init_db
 from data.items import REGION_QUOTA
 from data.repository import (
     get_all_items, upsert_price, upsert_quota, get_quota,
-    get_prices_by_date_and_region, get_available_dates
+    get_prices_by_date_and_region, get_available_dates,
+    upsert_friend_price, get_friend_prices_by_date_and_region,
+    get_friend_names, get_profit_comparison
 )
 
 app = Flask(__name__)
@@ -143,6 +145,61 @@ def confirm():
 
     flash(f'已儲存 {saved} 筆價格資料（{REGIONS.get(region, region)}）', 'success')
     return redirect(url_for('index', date=game_date))
+
+
+@app.route('/compare')
+def compare():
+    """利潤比對頁面 - 自己 vs 好友價格"""
+    selected_date = request.args.get('date')
+    current_date = get_game_date()
+    date = selected_date or current_date
+    available = get_available_dates()
+    friends = get_friend_names(date)
+
+    valley_comparison = get_profit_comparison('valley_iv', date)
+    wuling_comparison = get_profit_comparison('wuling', date)
+
+    # Calculate totals
+    valley_total_profit = sum(r['profit'] for r in valley_comparison if r['profit'] is not None and r['profit'] > 0)
+    wuling_total_profit = sum(r['profit'] for r in wuling_comparison if r['profit'] is not None and r['profit'] > 0)
+
+    # Find the best item overall
+    all_items = valley_comparison + wuling_comparison
+    profitable = [r for r in all_items if r['profit'] is not None and r['profit'] > 0]
+    profitable.sort(key=lambda x: x['profit'], reverse=True)
+
+    return render_template('compare.html',
+                           valley_comparison=valley_comparison,
+                           wuling_comparison=wuling_comparison,
+                           valley_total_profit=valley_total_profit,
+                           wuling_total_profit=wuling_total_profit,
+                           top_profitable=profitable[:5],
+                           friends=friends,
+                           current_date=current_date,
+                           selected_date=selected_date,
+                           available_dates=available)
+
+
+@app.route('/friend/manual', methods=['POST'])
+def friend_manual_input():
+    """手動輸入好友價格"""
+    item_id = request.form.get('item_id', type=int)
+    market_price = request.form.get('market_price', type=int)
+    friend_name = request.form.get('friend_name', '好友')
+    game_date = request.form.get('game_date')
+
+    if not all([item_id, market_price]):
+        flash('請填寫所有欄位', 'danger')
+        return redirect(url_for('compare'))
+
+    if market_price < 100 or market_price > 8000:
+        flash('價格必須在 100-8000 之間', 'danger')
+        return redirect(url_for('compare'))
+
+    upsert_friend_price(item_id, market_price, friend_name=friend_name,
+                        game_date=game_date, source='manual')
+    flash(f'已儲存好友價格：{market_price}', 'success')
+    return redirect(url_for('compare', date=game_date))
 
 
 if __name__ == '__main__':
