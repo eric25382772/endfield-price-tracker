@@ -8,3 +8,5 @@ dist/
 build/
 .env
 venv/
+.claude/
+data/item_images/_debug_*
