@@ -22,11 +22,12 @@ from config import get_game_date, REGIONS
 from data.models import init_db
 from data.items import VALLEY_IV_GOODS, WULING_GOODS
 from data.repository import (
-    get_all_items, upsert_price, upsert_friend_price
+    get_all_items, upsert_price, upsert_friend_price,
+    delete_friend_prices_for_item
 )
 from ocr.engine import recognize
 from ocr.parser import parse_ocr_results
-from ocr.image_matcher import identify_items_by_image, get_card_positions
+from ocr.image_matcher import identify_items_by_image, get_card_positions, identify_friend_item
 
 
 # State
@@ -282,42 +283,113 @@ def scan_my_prices():
         scanning = False
 
 
+def parse_friend_list(ocr_results):
+    """
+    解析好友價格畫面右側的好友列表。
+    每行: 好友名稱(含#號) + 價格數字
+
+    Returns:
+        List of {'friend_name': str, 'price': int}
+    """
+    name_blocks = []
+    price_blocks = []
+
+    for block in ocr_results:
+        text = block['text'].strip()
+        # 好友名稱含有 # 號 (如 "Zenemid#7919")
+        if '#' in text and len(text) >= 3:
+            name_blocks.append({
+                'name': text,
+                'center_y': block['center_y'],
+                'center_x': block['center_x'],
+            })
+            continue
+        # 價格: 3-4 位數字 (400~6000)
+        match = re.search(r'(\d{3,4})', text)
+        if match:
+            val = int(match.group(1))
+            if 400 <= val <= 6000:
+                price_blocks.append({
+                    'price': val,
+                    'center_y': block['center_y'],
+                    'center_x': block['center_x'],
+                })
+
+    # 按 y 座標配對: 每個名字找最近的價格
+    results = []
+    used = set()
+    for nb in sorted(name_blocks, key=lambda x: x['center_y']):
+        best_price = None
+        best_dist = float('inf')
+        best_idx = -1
+        for i, pb in enumerate(price_blocks):
+            if i in used:
+                continue
+            dy = abs(pb['center_y'] - nb['center_y'])
+            if dy < best_dist and dy < 80:
+                best_dist = dy
+                best_price = pb
+                best_idx = i
+        if best_price is not None:
+            used.add(best_idx)
+            results.append({
+                'friend_name': nb['name'],
+                'price': best_price['price'],
+            })
+            print(f"    {nb['name']}: {best_price['price']}")
+        else:
+            print(f"    {nb['name']}: (未找到價格)")
+
+    return results
+
+
 def scan_friend_prices():
     """F3: Capture foreground window and save as friend prices."""
-    global scanning, friend_counter
+    global scanning
     if scanning:
         return
     scanning = True
 
     try:
-        friend_counter += 1
-        friend_name = f"好友{friend_counter}"
         print(f"\n{'='*50}")
-        print(f"[F3] 掃描好友的市場 - {friend_name}")
+        print(f"[F3] 掃描好友的市場價格")
         print(f"{'='*50}")
 
         filepath = capture_foreground_window()
         print(f"  截圖已儲存: {filepath}")
 
-        parsed, region = scan_with_image_match(filepath)
-
-        if not parsed:
-            print("  未辨識到任何物品或價格")
+        # Step 1: 圖片比對辨識左側大物品圖
+        item_id, score, region = identify_friend_item(filepath)
+        if not item_id:
+            print("  無法辨識物品圖片")
             return
 
+        items_db = get_all_items()
+        item_name = next((it['name_cn'] for it in items_db if it['id'] == item_id), '?')
         region_name = REGIONS.get(region, region) if region else "未知"
+        print(f"  辨識物品: {item_name} (item_{item_id}, {region_name})")
 
+        # Step 2: OCR 讀取好友名稱 + 價格
+        print("  OCR 辨識好友列表中...")
+        ocr_results = recognize(filepath)
+        print(f"  OCR 找到 {len(ocr_results)} 個文字區塊")
+
+        friend_list = parse_friend_list(ocr_results)
+        if not friend_list:
+            print("  未辨識到好友價格")
+            return
+
+        # Step 3: 清除該物品舊的好友價格，再儲存新的
         game_date = get_game_date()
+        delete_friend_prices_for_item(item_id, game_date)
         saved = 0
-        for item in parsed:
-            if item['item_id'] and item['price']:
-                upsert_friend_price(item['item_id'], item['price'],
-                                    friend_name=friend_name,
-                                    game_date=game_date, source='scanner')
-                saved += 1
-                print(f"  >> {item['item_name']}: {item['price']}")
+        for entry in friend_list:
+            upsert_friend_price(item_id, entry['price'],
+                                friend_name=entry['friend_name'],
+                                game_date=game_date, source='scanner')
+            saved += 1
 
-        print(f"\n  已儲存 {saved} 筆 {friend_name} 的價格 ({region_name})")
+        print(f"\n  已儲存 {saved} 筆好友價格 - {item_name} ({region_name})")
         ensure_flask()
         print(f"  重新整理網頁的「利潤比對」頁面即可查看比較結果")
 

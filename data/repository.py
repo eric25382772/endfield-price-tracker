@@ -81,6 +81,18 @@ def get_prices_by_date_and_region(region, game_date=None):
     return [dict(row) for row in rows]
 
 
+def delete_friend_prices_for_item(item_id, game_date=None):
+    """Delete all friend prices for a specific item on a date (before re-scanning)."""
+    if game_date is None:
+        game_date = get_game_date()
+    conn = get_db()
+    conn.execute("""
+        DELETE FROM friend_prices WHERE item_id = ? AND game_date = ?
+    """, (item_id, game_date))
+    conn.commit()
+    conn.close()
+
+
 def upsert_friend_price(item_id, market_price, friend_name='好友', game_date=None, source='ocr'):
     """Insert or update a friend's price record."""
     if game_date is None:

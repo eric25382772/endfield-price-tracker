@@ -200,3 +200,121 @@ def identify_items_by_image(screenshot_path, region):
         print(f"    卡位{idx+1}: item_{item_id} (分數: {score:.3f})")
 
     return results
+
+
+# === 好友價格畫面 ===
+
+# 好友畫面中，左側大物品圖的中心區域 (2560x1440 參考)
+# 遊戲介面左邊有暗色邊欄，物品圓圖在白色面板內
+FRIEND_ITEM_IMAGE_RECT = {
+    'x1': 500, 'y1': 400, 'x2': 780, 'y2': 680,
+}
+
+
+def match_item_features(crop, ref_images, region_item_ids=None):
+    """
+    用 ORB 特徵點匹配 + 色彩直方圖比對。
+    ORB 對大小/視角變化穩健，色彩補充辨識。
+    """
+    best_id = None
+    best_score = -1
+
+    crop_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    crop_hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+
+    # ORB 特徵提取
+    orb = cv2.ORB_create(nfeatures=500)
+    kp1, des1 = orb.detectAndCompute(crop_gray, None)
+
+    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+
+    ids_to_check = region_item_ids or ref_images.keys()
+
+    for item_id in ids_to_check:
+        if item_id not in ref_images:
+            continue
+        ref = ref_images[item_id]
+        ref_resized = cv2.resize(ref, (crop.shape[1], crop.shape[0]))
+        ref_gray = cv2.cvtColor(ref_resized, cv2.COLOR_BGR2GRAY)
+        ref_hsv = cv2.cvtColor(ref_resized, cv2.COLOR_BGR2HSV)
+
+        # ORB 特徵匹配
+        kp2, des2 = orb.detectAndCompute(ref_gray, None)
+        orb_score = 0.0
+        if des1 is not None and des2 is not None and len(des1) > 0 and len(des2) > 0:
+            matches = bf.knnMatch(des1, des2, k=2)
+            good = []
+            for m_pair in matches:
+                if len(m_pair) == 2:
+                    m, n = m_pair
+                    if m.distance < 0.75 * n.distance:
+                        good.append(m)
+            orb_score = len(good) / max(len(kp1), 1)
+
+        # HSV 2D 直方圖 (色相+飽和度一起比)
+        h_crop = cv2.calcHist([crop_hsv], [0, 1], None, [30, 32], [0, 180, 0, 256])
+        h_ref = cv2.calcHist([ref_hsv], [0, 1], None, [30, 32], [0, 180, 0, 256])
+        cv2.normalize(h_crop, h_crop)
+        cv2.normalize(h_ref, h_ref)
+        color_score = cv2.compareHist(h_crop, h_ref, cv2.HISTCMP_CORREL)
+
+        # 綜合: 特徵點為主, 色彩為輔
+        score = 0.6 * orb_score + 0.4 * color_score
+
+        if score > best_score:
+            best_score = score
+            best_id = item_id
+
+    return best_id, best_score
+
+
+def identify_friend_item(screenshot_path):
+    """
+    辨識好友價格畫面中左側的大物品圖。
+
+    Args:
+        screenshot_path: 截圖檔案路徑
+
+    Returns:
+        (item_id, score, region) 或 (None, 0, None)
+    """
+    ref_images = load_reference_images()
+    if not ref_images:
+        print("  警告: 無參考圖片")
+        return None, 0, None
+
+    img = cv2.imread(screenshot_path)
+    if img is None:
+        return None, 0, None
+
+    h, w = img.shape[:2]
+    scale_x = w / 2560
+    scale_y = h / 1440
+
+    rect = FRIEND_ITEM_IMAGE_RECT
+    x1 = int(rect['x1'] * scale_x)
+    y1 = int(rect['y1'] * scale_y)
+    x2 = int(rect['x2'] * scale_x)
+    y2 = int(rect['y2'] * scale_y)
+
+    crop = img[y1:y2, x1:x2]
+    if crop.size == 0:
+        return None, 0, None
+
+    # 儲存 debug 圖片
+    debug_path = os.path.join(REF_DIR, '_debug_friend_crop.png')
+    cv2.imwrite(debug_path, crop)
+
+    # 用色彩直方圖比對 (對背景/大小差異更穩健)
+    item_id, score = match_item_features(crop, ref_images, None)
+
+    # 判斷區域
+    region = None
+    if item_id:
+        if 1 <= item_id <= 12:
+            region = 'valley_iv'
+        elif 13 <= item_id <= 17:
+            region = 'wuling'
+
+    print(f"  好友畫面物品辨識: item_{item_id} (分數: {score:.3f})")
+    return item_id, score, region
