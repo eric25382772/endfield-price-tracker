@@ -14,6 +14,8 @@ import ctypes
 import ctypes.wintypes
 import tempfile
 import subprocess
+import threading
+from queue import Queue
 import keyboard
 import mss
 import mss.tools
@@ -31,9 +33,10 @@ from ocr.image_matcher import identify_items_by_image, get_card_positions, ident
 
 
 # State
-friend_counter = 0
-scanning = False
 flask_process = None
+f2_queue = Queue()
+f3_queue = Queue()
+last_f2_region = None  # F2 掃完後記錄區域，F3 只在該區域內比對
 
 
 def ensure_flask():
@@ -239,26 +242,20 @@ def scan_with_image_match(filepath):
     return results, region
 
 
-def scan_my_prices():
-    """F2: Capture foreground window and save as my prices."""
-    global scanning
-    if scanning:
-        return
-    scanning = True
-
+def process_my_prices(filepath):
+    """處理一張自己市場的截圖。"""
+    global last_f2_region
     try:
-        print(f"\n{'='*50}")
-        print(f"[F2] 掃描自己的市場")
-        print(f"{'='*50}")
-
-        filepath = capture_foreground_window()
-        print(f"  截圖已儲存: {filepath}")
-
         parsed, region = scan_with_image_match(filepath)
 
         if not parsed:
             print("  未辨識到任何物品或價格")
             return
+
+        # 記錄區域，讓 F3 知道要比對哪個區域
+        if region:
+            last_f2_region = region
+            print(f"  ★ 已鎖定區域: {REGIONS.get(region, region)}，後續 F3 只比對該區域物品")
 
         region_name = REGIONS.get(region, region) if region else "未知"
 
@@ -279,8 +276,20 @@ def scan_my_prices():
         print(f"  錯誤: {e}")
         import traceback
         traceback.print_exc()
-    finally:
-        scanning = False
+
+
+def scan_my_prices():
+    """F2: 立刻截圖，丟進佇列背景處理。"""
+    print(f"\n{'='*50}")
+    print(f"[F2] 掃描自己的市場")
+    print(f"{'='*50}")
+
+    try:
+        filepath = capture_foreground_window()
+        print(f"  截圖已儲存: {filepath}")
+        f2_queue.put(filepath)
+    except Exception as e:
+        print(f"  截圖錯誤: {e}")
 
 
 def parse_friend_list(ocr_results):
@@ -304,11 +313,11 @@ def parse_friend_list(ocr_results):
                 'center_x': block['center_x'],
             })
             continue
-        # 價格: 3-4 位數字 (400~6000)
-        match = re.search(r'(\d{3,4})', text)
+        # 價格: 4 位數字 (1000~6000)，排除百分比數字 (如 481.9% → 481)
+        match = re.search(r'(\d{4})', text)
         if match:
             val = int(match.group(1))
-            if 400 <= val <= 6000:
+            if 1000 <= val <= 6000:
                 price_blocks.append({
                     'price': val,
                     'center_y': block['center_y'],
@@ -343,23 +352,14 @@ def parse_friend_list(ocr_results):
     return results
 
 
-def scan_friend_prices():
-    """F3: Capture foreground window and save as friend prices."""
-    global scanning
-    if scanning:
-        return
-    scanning = True
-
+def process_friend_prices(filepath):
+    """處理一張好友價格的截圖。"""
     try:
-        print(f"\n{'='*50}")
-        print(f"[F3] 掃描好友的市場價格")
-        print(f"{'='*50}")
-
-        filepath = capture_foreground_window()
-        print(f"  截圖已儲存: {filepath}")
-
-        # Step 1: 圖片比對辨識左側大物品圖
-        item_id, score, region = identify_friend_item(filepath)
+        # Step 1: 圖片比對辨識左側大物品圖 (限定 F2 掃到的區域)
+        region_hint = last_f2_region
+        if region_hint:
+            print(f"  限定比對區域: {REGIONS.get(region_hint, region_hint)}")
+        item_id, score, region = identify_friend_item(filepath, region_hint=region_hint)
         if not item_id:
             print("  無法辨識物品圖片")
             return
@@ -397,8 +397,55 @@ def scan_friend_prices():
         print(f"  錯誤: {e}")
         import traceback
         traceback.print_exc()
-    finally:
-        scanning = False
+
+
+def scan_friend_prices():
+    """F3: 立刻截圖，丟進佇列背景處理。"""
+    print(f"\n{'='*50}")
+    print(f"[F3] 掃描好友的市場價格")
+    print(f"{'='*50}")
+
+    try:
+        filepath = capture_foreground_window()
+        print(f"  截圖已儲存: {filepath}")
+        f3_queue.put(filepath)
+    except Exception as e:
+        print(f"  截圖錯誤: {e}")
+
+
+def reset_friend_references():
+    """F4: 清除所有好友參考圖片，重新學習。"""
+    import shutil
+    from ocr.image_matcher import FRIEND_REF_DIR
+    if os.path.exists(FRIEND_REF_DIR):
+        shutil.rmtree(FRIEND_REF_DIR)
+        os.makedirs(FRIEND_REF_DIR, exist_ok=True)
+    # 清除快取
+    from ocr import image_matcher
+    image_matcher._friend_ref_images = {}
+    print(f"\n  ★ 已清除所有好友參考圖片，下次 F3 將重新學習")
+
+
+def worker_f2():
+    """背景執行緒：依序處理 F2 佇列中的截圖。"""
+    while True:
+        filepath = f2_queue.get()
+        if filepath is None:
+            break
+        print(f"\n  [F2 處理中] {os.path.basename(filepath)}")
+        process_my_prices(filepath)
+        f2_queue.task_done()
+
+
+def worker_f3():
+    """背景執行緒：依序處理 F3 佇列中的截圖。"""
+    while True:
+        filepath = f3_queue.get()
+        if filepath is None:
+            break
+        print(f"\n  [F3 處理中] {os.path.basename(filepath)}")
+        process_friend_prices(filepath)
+        f3_queue.task_done()
 
 
 def main():
@@ -410,10 +457,13 @@ def main():
     print()
     print("  F2  = 掃描自己的市場價格")
     print("  F3  = 掃描好友的市場價格")
+    print("  F4  = 清除好友參考圖（辨識錯誤時按此重來）")
     print("  ESC = 結束程式")
     print()
     print("  * 區域自動偵測（不需手動切換）")
     print("  * 請確保遊戲視窗在最前面再按快捷鍵")
+    print("  * 可連續按鍵截圖，會自動排隊處理")
+    print("  * F3 會自動學習物品圖片，辨識會越來越準")
     print()
     print(f"  遊戲日期: {get_game_date()}")
     print()
@@ -431,8 +481,15 @@ def main():
     print("  等待中... 請在遊戲市場畫面按 F2 或 F3")
     print()
 
+    # 啟動背景處理執行緒
+    t2 = threading.Thread(target=worker_f2, daemon=True)
+    t3 = threading.Thread(target=worker_f3, daemon=True)
+    t2.start()
+    t3.start()
+
     keyboard.on_press_key('f2', lambda _: scan_my_prices())
     keyboard.on_press_key('f3', lambda _: scan_friend_prices())
+    keyboard.on_press_key('f4', lambda _: reset_friend_references())
 
     keyboard.wait('esc')
     print("\n程式結束。")

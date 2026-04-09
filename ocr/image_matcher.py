@@ -210,11 +210,49 @@ FRIEND_ITEM_IMAGE_RECT = {
     'x1': 500, 'y1': 400, 'x2': 780, 'y2': 680,
 }
 
+# 好友畫面專用參考圖片目錄
+FRIEND_REF_DIR = os.path.join(REF_DIR, 'friend')
 
-def match_item_features(crop, ref_images, region_item_ids=None):
+# 好友參考圖片快取
+_friend_ref_images = {}
+
+
+def load_friend_reference_images():
+    """載入好友畫面專用的參考圖片 (friend/item_N.png)。"""
+    global _friend_ref_images
+    if _friend_ref_images:
+        return _friend_ref_images
+
+    if not os.path.exists(FRIEND_REF_DIR):
+        os.makedirs(FRIEND_REF_DIR, exist_ok=True)
+        return _friend_ref_images
+
+    for i in range(1, 18):
+        path = os.path.join(FRIEND_REF_DIR, f'item_{i}.png')
+        if os.path.exists(path):
+            img = cv2.imread(path)
+            if img is not None:
+                _friend_ref_images[i] = img
+
+    if _friend_ref_images:
+        print(f"  已載入 {len(_friend_ref_images)} 張好友參考圖片")
+    return _friend_ref_images
+
+
+def save_friend_reference(item_id, crop):
+    """儲存好友畫面裁切圖作為未來比對的參考。"""
+    os.makedirs(FRIEND_REF_DIR, exist_ok=True)
+    path = os.path.join(FRIEND_REF_DIR, f'item_{item_id}.png')
+    cv2.imwrite(path, crop)
+    # 清除快取，下次重新載入
+    global _friend_ref_images
+    _friend_ref_images = {}
+
+
+def match_friend_images(crop, ref_images, region_item_ids=None):
     """
-    用 ORB 特徵點匹配 + 色彩直方圖比對。
-    ORB 對大小/視角變化穩健，色彩補充辨識。
+    好友畫面 vs 好友參考圖的比對。
+    因為同樣是好友畫面裁切，直接用模板匹配 + 色彩就很準。
     """
     best_id = None
     best_score = -1
@@ -222,13 +260,8 @@ def match_item_features(crop, ref_images, region_item_ids=None):
     crop_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     crop_hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
 
-    # ORB 特徵提取
-    orb = cv2.ORB_create(nfeatures=500)
-    kp1, des1 = orb.detectAndCompute(crop_gray, None)
-
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
-
     ids_to_check = region_item_ids or ref_images.keys()
+    scores_debug = []
 
     for item_id in ids_to_check:
         if item_id not in ref_images:
@@ -238,7 +271,58 @@ def match_item_features(crop, ref_images, region_item_ids=None):
         ref_gray = cv2.cvtColor(ref_resized, cv2.COLOR_BGR2GRAY)
         ref_hsv = cv2.cvtColor(ref_resized, cv2.COLOR_BGR2HSV)
 
-        # ORB 特徵匹配
+        # 模板匹配 (同類型圖片，直接比對很準)
+        result = cv2.matchTemplate(crop_gray, ref_gray, cv2.TM_CCOEFF_NORMED)
+        template_score = result[0][0]
+
+        # HSV 色彩
+        h_crop = cv2.calcHist([crop_hsv], [0, 1], None, [30, 32], [0, 180, 0, 256])
+        h_ref = cv2.calcHist([ref_hsv], [0, 1], None, [30, 32], [0, 180, 0, 256])
+        cv2.normalize(h_crop, h_crop)
+        cv2.normalize(h_ref, h_ref)
+        color_score = cv2.compareHist(h_crop, h_ref, cv2.HISTCMP_CORREL)
+
+        score = 0.6 * template_score + 0.4 * color_score
+        scores_debug.append((item_id, score, template_score, color_score))
+
+        if score > best_score:
+            best_score = score
+            best_id = item_id
+
+    scores_debug.sort(key=lambda x: x[1], reverse=True)
+    for item_id, sc, tpl_s, col_s in scores_debug[:3]:
+        print(f"    item_{item_id}: 總={sc:.3f} (模板={tpl_s:.3f}, 色彩={col_s:.3f})")
+
+    return best_id, best_score
+
+
+def match_item_features(crop, ref_images, region_item_ids=None):
+    """
+    好友畫面 vs 市場卡片參考圖的比對 (fallback)。
+    用 ORB + HSV + 模板匹配綜合。
+    """
+    best_id = None
+    best_score = -1
+
+    crop_gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    crop_hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
+
+    orb = cv2.ORB_create(nfeatures=500)
+    kp1, des1 = orb.detectAndCompute(crop_gray, None)
+    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+
+    ids_to_check = region_item_ids or ref_images.keys()
+    scores_debug = []
+
+    for item_id in ids_to_check:
+        if item_id not in ref_images:
+            continue
+        ref = ref_images[item_id]
+        ref_resized = cv2.resize(ref, (crop.shape[1], crop.shape[0]))
+        ref_gray = cv2.cvtColor(ref_resized, cv2.COLOR_BGR2GRAY)
+        ref_hsv = cv2.cvtColor(ref_resized, cv2.COLOR_BGR2HSV)
+
+        # ORB
         kp2, des2 = orb.detectAndCompute(ref_gray, None)
         orb_score = 0.0
         if des1 is not None and des2 is not None and len(des1) > 0 and len(des2) > 0:
@@ -251,38 +335,43 @@ def match_item_features(crop, ref_images, region_item_ids=None):
                         good.append(m)
             orb_score = len(good) / max(len(kp1), 1)
 
-        # HSV 2D 直方圖 (色相+飽和度一起比)
+        # HSV 色彩
         h_crop = cv2.calcHist([crop_hsv], [0, 1], None, [30, 32], [0, 180, 0, 256])
         h_ref = cv2.calcHist([ref_hsv], [0, 1], None, [30, 32], [0, 180, 0, 256])
         cv2.normalize(h_crop, h_crop)
         cv2.normalize(h_ref, h_ref)
         color_score = cv2.compareHist(h_crop, h_ref, cv2.HISTCMP_CORREL)
 
-        # 綜合: 特徵點為主, 色彩為輔
-        score = 0.6 * orb_score + 0.4 * color_score
+        # 模板匹配
+        result = cv2.matchTemplate(crop_gray, ref_gray, cv2.TM_CCOEFF_NORMED)
+        template_score = result[0][0]
+
+        score = 0.4 * orb_score + 0.25 * color_score + 0.35 * template_score
+        scores_debug.append((item_id, score, orb_score, color_score, template_score))
 
         if score > best_score:
             best_score = score
             best_id = item_id
 
+    scores_debug.sort(key=lambda x: x[1], reverse=True)
+    for item_id, sc, orb_s, col_s, tpl_s in scores_debug[:3]:
+        print(f"    item_{item_id}: 總={sc:.3f} (ORB={orb_s:.3f}, 色彩={col_s:.3f}, 模板={tpl_s:.3f})")
+
     return best_id, best_score
 
 
-def identify_friend_item(screenshot_path):
+def identify_friend_item(screenshot_path, region_hint=None):
     """
     辨識好友價格畫面中左側的大物品圖。
+    優先使用好友畫面專用參考圖；若不足則 fallback 到市場卡片參考圖。
 
     Args:
         screenshot_path: 截圖檔案路徑
+        region_hint: 限定比對區域 ('valley_iv' 或 'wuling')
 
     Returns:
         (item_id, score, region) 或 (None, 0, None)
     """
-    ref_images = load_reference_images()
-    if not ref_images:
-        print("  警告: 無參考圖片")
-        return None, 0, None
-
     img = cv2.imread(screenshot_path)
     if img is None:
         return None, 0, None
@@ -305,12 +394,36 @@ def identify_friend_item(screenshot_path):
     debug_path = os.path.join(REF_DIR, '_debug_friend_crop.png')
     cv2.imwrite(debug_path, crop)
 
-    # 用色彩直方圖比對 (對背景/大小差異更穩健)
-    item_id, score = match_item_features(crop, ref_images, None)
+    # 限定比對範圍
+    region_ids = None
+    if region_hint == 'valley_iv':
+        region_ids = list(range(1, 13))
+    elif region_hint == 'wuling':
+        region_ids = list(range(13, 18))
+
+    # 優先用好友參考圖 (同類型比對，準確度高)
+    friend_refs = load_friend_reference_images()
+    available_friend = [i for i in (region_ids or range(1, 18)) if i in friend_refs]
+
+    if len(available_friend) >= 3:
+        print(f"  使用好友參考圖比對 ({len(available_friend)} 張)")
+        item_id, score = match_friend_images(crop, friend_refs, region_ids)
+    else:
+        # Fallback: 用市場卡片參考圖
+        ref_images = load_reference_images()
+        if not ref_images:
+            print("  警告: 無參考圖片")
+            return None, 0, None
+        print(f"  使用市場卡片參考圖比對 (好友參考圖不足)")
+        item_id, score = match_item_features(crop, ref_images, region_ids)
+
+    # 自動儲存好友裁切圖作為參考 (下次比對會更準)
+    if item_id:
+        save_friend_reference(item_id, crop)
 
     # 判斷區域
-    region = None
-    if item_id:
+    region = region_hint
+    if not region and item_id:
         if 1 <= item_id <= 12:
             region = 'valley_iv'
         elif 13 <= item_id <= 17:
