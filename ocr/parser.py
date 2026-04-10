@@ -146,7 +146,8 @@ def _parse_by_proximity(ocr_results, known_names, item_name_to_id):
                     'ocr_text': text,
                 })
 
-    # Match each name to the closest price by y-coordinate
+    # Match each name to the closest price by x+y distance
+    # 價格在物品名正上方，x 要對齊，y 稍高
     results = []
     used_prices = set()
 
@@ -158,14 +159,19 @@ def _parse_by_proximity(ocr_results, known_names, item_name_to_id):
         for i, pb in enumerate(price_blocks):
             if i in used_prices:
                 continue
-            dist = abs(nb['center_y'] - pb['center_y'])
+            dx = abs(pb['center_x'] - nb['center_x'])
+            dy = abs(pb['center_y'] - nb['center_y'])
+            # x 對齊最重要（同一張卡片內），y 距離次要
+            if dx > 300:  # 太遠的 x 直接跳過
+                continue
+            dist = dx * 3 + dy  # x 權重高
             if dist < best_dist:
                 best_dist = dist
                 best_price = pb
                 best_idx = i
 
         price_val = None
-        if best_price and best_dist < 500:  # Max 500px y-distance (for high-res screens)
+        if best_price and best_dist < 1500:
             price_val = best_price['price']
             used_prices.add(best_idx)
 

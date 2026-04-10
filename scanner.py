@@ -200,25 +200,53 @@ def scan_with_image_match(filepath):
     region_name = REGIONS.get(region, region)
     print(f"  偵測到區域: {region_name}")
 
-    # Step 3: 圖片比對辨識每個卡位的物品
-    print("  圖片比對辨識中...")
+    # OCR 文字已經有物品名稱+價格配對，優先使用
+    # 只過濾掉「市場」標題上方（持有區）的結果
+    market_y = 0
+    for block in ocr_results:
+        if '市場' in block['text']:
+            market_y = block['center_y']
+            break
+
+    if market_y > 0:
+        # 重新解析，只用市場區域內的 OCR 結果
+        market_ocr = [b for b in ocr_results if b['center_y'] > market_y]
+        parsed_market = parse_ocr_results(market_ocr, items_db)
+        complete = [r for r in parsed_market if r['item_id'] and r['price']]
+        if len(complete) >= 3:
+            print(f"  OCR 文字辨識成功 ({len(complete)} 組)")
+            for r in complete:
+                print(f"    [OK] {r['item_name']} = {r['price']}")
+            return parsed_market, region
+
+    # OCR 文字不夠才用圖片比對
+    complete_all = [r for r in parsed_for_detect if r['item_id'] and r['price']]
+    if len(complete_all) >= 3:
+        print(f"  OCR 文字辨識成功 ({len(complete_all)} 組)")
+        for r in complete_all:
+            if r['item_id'] and r['price']:
+                print(f"    [OK] {r['item_name']} = {r['price']}")
+        return parsed_for_detect, region
+
+    # fallback: 圖片比對
+    print("  OCR 文字不足，改用圖片比對...")
     card_results = identify_items_by_image(filepath, region)
 
     if not card_results:
-        print("  圖片比對失敗，使用 OCR 文字辨識結果")
+        print("  圖片比對也失敗")
         return parsed_for_detect, region
 
-    # Step 4: 從 OCR 提取價格並匹配到卡位
     import cv2
     img = cv2.imread(filepath)
     img_h = img.shape[0] if img is not None else 1440
 
     price_blocks = extract_prices_from_ocr(ocr_results)
+    if market_y > 0:
+        price_blocks = [p for p in price_blocks if p['center_y'] > market_y]
     print(f"  找到 {len(price_blocks)} 個價格數字")
 
     match_prices_to_cards(card_results, price_blocks, img_h)
 
-    # Step 5: 轉換成標準格式
     item_id_to_name = {item['id']: item['name_cn'] for item in items_db}
     results = []
     for card in card_results:
@@ -292,7 +320,7 @@ def scan_my_prices():
         print(f"  截圖錯誤: {e}")
 
 
-def parse_friend_list(ocr_results):
+def parse_friend_list(ocr_results, img_width=2560):
     """
     解析好友價格畫面右側的好友列表。
     每行: 好友名稱(含#號) + 價格數字
@@ -303,8 +331,14 @@ def parse_friend_list(ocr_results):
     name_blocks = []
     price_blocks = []
 
+    # 只讀取右側好友列表區域，排除左側物品圖的 OCR 雜訊
+    x_min = img_width * 0.3  # 好友列表在畫面右側 70%
+
     for block in ocr_results:
         text = block['text'].strip()
+        # 過濾左側區域的 OCR 雜訊
+        if block['center_x'] < x_min:
+            continue
         # 好友名稱含有 # 號 (如 "Zenemid#7919")
         if '#' in text and len(text) >= 3:
             name_blocks.append({
@@ -374,7 +408,12 @@ def process_friend_prices(filepath):
         ocr_results = recognize(filepath)
         print(f"  OCR 找到 {len(ocr_results)} 個文字區塊")
 
-        friend_list = parse_friend_list(ocr_results)
+        # 取得圖片寬度用於過濾左側雜訊
+        import cv2
+        img = cv2.imread(filepath)
+        img_width = img.shape[1] if img is not None else 2560
+
+        friend_list = parse_friend_list(ocr_results, img_width=img_width)
         if not friend_list:
             print("  未辨識到好友價格")
             return
