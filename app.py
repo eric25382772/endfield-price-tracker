@@ -1,13 +1,14 @@
 import os
 from flask import Flask, render_template, request, redirect, url_for, flash
-from config import UPLOAD_FOLDER, REGIONS, get_game_date, allowed_file
+from config import UPLOAD_FOLDER, REGIONS, get_game_date, allowed_file, PROFIT_THRESHOLD, STOCKPILE_THRESHOLD
 from data.models import init_db
 from data.items import REGION_QUOTA
 from data.repository import (
     get_all_items, upsert_price, upsert_quota, get_quota,
     get_prices_by_date_and_region, get_available_dates,
     upsert_friend_price, get_friend_prices_by_date_and_region,
-    get_friend_names, get_profit_comparison
+    get_friend_names, get_profit_comparison,
+    get_active_stockpile, mark_stockpile_sold
 )
 
 app = Flask(__name__)
@@ -168,6 +169,9 @@ def compare():
     profitable = [r for r in all_items if r['profit'] is not None and r['profit'] > 0]
     profitable.sort(key=lambda x: x['profit'], reverse=True)
 
+    # 囤貨資料
+    stockpile = get_active_stockpile()
+
     return render_template('compare.html',
                            valley_comparison=valley_comparison,
                            wuling_comparison=wuling_comparison,
@@ -175,6 +179,9 @@ def compare():
                            wuling_total_profit=wuling_total_profit,
                            top_profitable=profitable[:5],
                            friends=friends,
+                           stockpile=stockpile,
+                           profit_threshold=PROFIT_THRESHOLD,
+                           stockpile_threshold=STOCKPILE_THRESHOLD,
                            current_date=current_date,
                            selected_date=selected_date,
                            available_dates=available)
@@ -200,6 +207,16 @@ def friend_manual_input():
                         game_date=game_date, source='manual')
     flash(f'已儲存好友價格：{market_price}', 'success')
     return redirect(url_for('compare', date=game_date))
+
+
+@app.route('/stockpile/sell', methods=['POST'])
+def stockpile_sell():
+    """標記囤貨為已賣出"""
+    stockpile_id = request.form.get('stockpile_id', type=int)
+    if stockpile_id:
+        mark_stockpile_sold(stockpile_id)
+        flash('已標記為賣出', 'success')
+    return redirect(url_for('compare'))
 
 
 if __name__ == '__main__':

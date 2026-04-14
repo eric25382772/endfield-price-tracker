@@ -94,7 +94,7 @@
             </thead>
             <tbody>
                 {% for item in valley_comparison %}
-                <tr class="{% if item.profit is not none and item.profit > 200 %}table-success{% elif item.profit is not none and item.profit < -200 %}table-danger{% endif %}">
+                <tr class="{% if item.profit is not none and item.profit >= profit_threshold %}table-success{% elif item.profit is not none and item.profit < 0 %}table-danger{% endif %}">
                     <td>
                         {{ item_image(item) }}
                         <strong>{{ item.name_cn }}</strong>
@@ -120,12 +120,12 @@
                     </td>
                     <td class="text-center">
                         {% if item.profit is not none %}
-                            {% if item.profit >= 500 %}
+                            {% if item.profit >= profit_threshold %}
                                 <span class="badge bg-success">必買</span>
-                            {% elif item.profit >= 200 %}
+                            {% elif item.profit >= 1500 %}
                                 <span class="badge bg-info">可買</span>
                             {% elif item.profit > 0 %}
-                                <span class="badge bg-secondary">微利</span>
+                                <span class="badge bg-warning text-dark">低利潤</span>
                             {% elif item.profit == 0 %}
                                 <span class="badge bg-secondary">持平</span>
                             {% else %}
@@ -133,6 +133,9 @@
                             {% endif %}
                         {% else %}
                             <span class="text-muted">-</span>
+                        {% endif %}
+                        {% if item.my_price is not none and item.my_price < stockpile_threshold %}
+                            <br><span class="badge bg-warning text-dark mt-1">建議囤貨</span>
                         {% endif %}
                     </td>
                 </tr>
@@ -166,7 +169,7 @@
             </thead>
             <tbody>
                 {% for item in wuling_comparison %}
-                <tr class="{% if item.profit is not none and item.profit > 200 %}table-success{% elif item.profit is not none and item.profit < -200 %}table-danger{% endif %}">
+                <tr class="{% if item.profit is not none and item.profit >= profit_threshold %}table-success{% elif item.profit is not none and item.profit < 0 %}table-danger{% endif %}">
                     <td>
                         {{ item_image(item) }}
                         <strong>{{ item.name_cn }}</strong>
@@ -192,12 +195,12 @@
                     </td>
                     <td class="text-center">
                         {% if item.profit is not none %}
-                            {% if item.profit >= 500 %}
+                            {% if item.profit >= profit_threshold %}
                                 <span class="badge bg-success">必買</span>
-                            {% elif item.profit >= 200 %}
+                            {% elif item.profit >= 1500 %}
                                 <span class="badge bg-info">可買</span>
                             {% elif item.profit > 0 %}
-                                <span class="badge bg-secondary">微利</span>
+                                <span class="badge bg-warning text-dark">低利潤</span>
                             {% elif item.profit == 0 %}
                                 <span class="badge bg-secondary">持平</span>
                             {% else %}
@@ -206,6 +209,9 @@
                         {% else %}
                             <span class="text-muted">-</span>
                         {% endif %}
+                        {% if item.my_price is not none and item.my_price < stockpile_threshold %}
+                            <br><span class="badge bg-warning text-dark mt-1">建議囤貨</span>
+                        {% endif %}
                     </td>
                 </tr>
                 {% endfor %}
@@ -213,6 +219,74 @@
         </table>
     </div>
 </div>
+
+{# ===== 囤貨持有 ===== #}
+{% if stockpile %}
+<div class="card mb-4 border-warning">
+    <div class="card-header bg-warning text-dark">
+        <h5 class="mb-0">囤貨持有</h5>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-dark">
+                <tr>
+                    <th>物品</th>
+                    <th class="text-center" style="width:80px">區域</th>
+                    <th class="text-center" style="width:100px">買入價</th>
+                    <th class="text-center" style="width:100px">好友最高</th>
+                    <th class="text-center" style="width:120px">囤貨利潤</th>
+                    <th class="text-center" style="width:100px">買入日</th>
+                    <th class="text-center" style="width:80px">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in stockpile %}
+                <tr>
+                    <td>
+                        <img src="/static/images/items/item_{{ item.item_id }}.png" alt="{{ item.name_cn }}" style="width:40px;height:auto;vertical-align:middle;margin-right:6px;border-radius:4px;">
+                        <strong>{{ item.name_cn }}</strong>
+                    </td>
+                    <td class="text-center">
+                        {% if item.region == 'valley_iv' %}
+                            <span class="badge bg-primary">谷地</span>
+                        {% else %}
+                            <span class="badge bg-success">武陵</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">{{ item.buy_price }}</td>
+                    <td class="text-center">
+                        {% if item.friend_best_price is not none %}
+                            {{ item.friend_best_price }}
+                        {% else %}
+                            <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center fw-bold">
+                        {% if item.stockpile_profit is not none %}
+                            <span class="{% if item.stockpile_profit > 0 %}text-success{% elif item.stockpile_profit < 0 %}text-danger{% endif %}">
+                                {% if item.stockpile_profit > 0 %}+{% endif %}{{ item.stockpile_profit }}
+                            </span>
+                            {% if item.stockpile_profit >= profit_threshold %}
+                                <br><span class="badge bg-success">可賣</span>
+                            {% endif %}
+                        {% else %}
+                            <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center"><small>{{ item.game_date_bought }}</small></td>
+                    <td class="text-center">
+                        <form method="POST" action="/stockpile/sell" style="display:inline">
+                            <input type="hidden" name="stockpile_id" value="{{ item.id }}">
+                            <button type="submit" class="btn btn-sm btn-outline-success" title="標記為已賣出">賣出</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
 
 {# ===== 手動輸入好友價格 ===== #}
 <div class="card mt-4">

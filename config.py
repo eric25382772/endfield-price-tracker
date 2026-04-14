@@ -18,6 +18,10 @@ OCR_LANG = 'ch'
 OCR_CONFIDENCE_THRESHOLD = 0.6
 FUZZY_MATCH_THRESHOLD = 70  # thefuzz uses 0-100 scale
 
+# Trading thresholds
+PROFIT_THRESHOLD = 3000      # 利潤 < 3000 建議不買（配額有限）
+STOCKPILE_THRESHOLD = 1400   # 自己價格 < 1400 建議囤貨（低於基準30%）
+
 # Regions
 REGIONS = {
     'valley_iv': '四號谷地',

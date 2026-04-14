@@ -25,7 +25,7 @@ from data.models import init_db
 from data.items import VALLEY_IV_GOODS, WULING_GOODS
 from data.repository import (
     get_all_items, upsert_price, upsert_friend_price,
-    delete_friend_prices_for_item
+    delete_friend_prices_for_item, upsert_stockpile
 )
 from ocr.engine import recognize
 from ocr.parser import parse_ocr_results
@@ -181,8 +181,26 @@ def match_prices_to_cards(card_results, price_blocks, img_height):
     return card_results
 
 
+def parse_holding_area(ocr_results, market_y, items_db):
+    """
+    解析「市場」文字上方的持有區物品。
+    持有區顯示玩家目前持有的彈性物資名稱和買入價格。
+    Returns: list of {'item_id', 'item_name', 'price'}
+    """
+    if market_y <= 0:
+        return []
+
+    holding_ocr = [b for b in ocr_results if b['center_y'] < market_y]
+    if not holding_ocr:
+        return []
+
+    parsed = parse_ocr_results(holding_ocr, items_db)
+    holdings = [r for r in parsed if r['item_id'] and r['price']]
+    return holdings
+
+
 def scan_with_image_match(filepath):
-    """用圖片比對辨識物品 + OCR 讀取價格。"""
+    """用圖片比對辨識物品 + OCR 讀取價格。回傳 (市場結果, 區域, 持有區結果)。"""
     # Step 1: OCR 取得所有文字 (用於偵測區域和提取價格)
     print("  OCR 辨識中...")
     ocr_results = recognize(filepath)
@@ -195,7 +213,7 @@ def scan_with_image_match(filepath):
 
     if not region:
         print("  無法判斷區域，嘗試用舊方法")
-        return parsed_for_detect, None
+        return parsed_for_detect, None, []
 
     region_name = REGIONS.get(region, region)
     print(f"  偵測到區域: {region_name}")
@@ -208,6 +226,13 @@ def scan_with_image_match(filepath):
             market_y = block['center_y']
             break
 
+    # 解析持有區（市場文字上方）
+    holdings = parse_holding_area(ocr_results, market_y, items_db)
+    if holdings:
+        print(f"  持有區偵測到 {len(holdings)} 項囤貨:")
+        for h in holdings:
+            print(f"    [囤貨] {h['item_name']} = {h['price']}")
+
     if market_y > 0:
         # 重新解析，只用市場區域內的 OCR 結果
         market_ocr = [b for b in ocr_results if b['center_y'] > market_y]
@@ -217,7 +242,7 @@ def scan_with_image_match(filepath):
             print(f"  OCR 文字辨識成功 ({len(complete)} 組)")
             for r in complete:
                 print(f"    [OK] {r['item_name']} = {r['price']}")
-            return parsed_market, region
+            return parsed_market, region, holdings
 
     # OCR 文字不夠才用圖片比對
     complete_all = [r for r in parsed_for_detect if r['item_id'] and r['price']]
@@ -226,7 +251,7 @@ def scan_with_image_match(filepath):
         for r in complete_all:
             if r['item_id'] and r['price']:
                 print(f"    [OK] {r['item_name']} = {r['price']}")
-        return parsed_for_detect, region
+        return parsed_for_detect, region, holdings
 
     # fallback: 圖片比對
     print("  OCR 文字不足，改用圖片比對...")
@@ -234,7 +259,7 @@ def scan_with_image_match(filepath):
 
     if not card_results:
         print("  圖片比對也失敗")
-        return parsed_for_detect, region
+        return parsed_for_detect, region, holdings
 
     import cv2
     img = cv2.imread(filepath)
@@ -267,14 +292,14 @@ def scan_with_image_match(filepath):
     complete = [r for r in results if r['item_id'] and r['price']]
     print(f"  圖片比對結果: {len(complete)}/{len(results)} 組完整")
 
-    return results, region
+    return results, region, holdings
 
 
 def process_my_prices(filepath):
     """處理一張自己市場的截圖。"""
     global last_f2_region
     try:
-        parsed, region = scan_with_image_match(filepath)
+        parsed, region, holdings = scan_with_image_match(filepath)
 
         if not parsed:
             print("  未辨識到任何物品或價格")
@@ -296,7 +321,17 @@ def process_my_prices(filepath):
                 saved += 1
                 print(f"  >> {item['item_name']}: {item['price']}")
 
+        # 儲存持有區囤貨
+        stockpile_saved = 0
+        if holdings and region:
+            for h in holdings:
+                upsert_stockpile(h['item_id'], h['price'], region, game_date=game_date)
+                stockpile_saved += 1
+                print(f"  >> [囤貨] {h['item_name']}: {h['price']}")
+
         print(f"\n  已儲存 {saved} 筆自己的價格 ({region_name})")
+        if stockpile_saved:
+            print(f"  已記錄 {stockpile_saved} 筆囤貨")
         ensure_flask()
         print(f"  重新整理網頁即可查看")
 

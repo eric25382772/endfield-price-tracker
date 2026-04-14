@@ -54,6 +54,21 @@ def init_db():
         )
     """)
 
+    # 囤貨紀錄
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS stockpile (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            item_id INTEGER NOT NULL REFERENCES items(id),
+            buy_price INTEGER NOT NULL,
+            quantity INTEGER NOT NULL DEFAULT 1,
+            game_date_bought TEXT NOT NULL,
+            region TEXT NOT NULL,
+            sold INTEGER NOT NULL DEFAULT 0,
+            recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(item_id, game_date_bought)
+        )
+    """)
+
     # 購買配額紀錄
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS quotas (

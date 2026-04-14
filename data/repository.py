@@ -199,6 +199,58 @@ def get_profit_comparison(region, game_date=None):
     return [dict(row) for row in rows]
 
 
+def upsert_stockpile(item_id, buy_price, region, game_date=None):
+    """記錄囤貨（持有區偵測到的物品）。同一天同物品只記一筆。"""
+    if game_date is None:
+        game_date = get_game_date()
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO stockpile (item_id, buy_price, quantity, game_date_bought, region)
+        VALUES (?, ?, 1, ?, ?)
+        ON CONFLICT(item_id, game_date_bought)
+        DO UPDATE SET buy_price = excluded.buy_price,
+                      recorded_at = CURRENT_TIMESTAMP
+    """, (item_id, buy_price, game_date, region))
+    conn.commit()
+    conn.close()
+
+
+def get_active_stockpile():
+    """取得所有未賣出的囤貨，搭配好友最高價計算利潤。"""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT s.id, s.item_id, i.name_cn, i.name_en, i.region,
+               s.buy_price, s.game_date_bought,
+               (SELECT MAX(fp.market_price)
+                FROM friend_prices fp
+                WHERE fp.item_id = s.item_id
+                  AND fp.game_date = (SELECT MAX(fp2.game_date) FROM friend_prices fp2 WHERE fp2.item_id = s.item_id)
+               ) as friend_best_price
+        FROM stockpile s
+        JOIN items i ON s.item_id = i.id
+        WHERE s.sold = 0
+        ORDER BY s.game_date_bought DESC
+    """).fetchall()
+    conn.close()
+    results = []
+    for row in rows:
+        r = dict(row)
+        if r['friend_best_price'] is not None:
+            r['stockpile_profit'] = r['friend_best_price'] - r['buy_price']
+        else:
+            r['stockpile_profit'] = None
+        results.append(r)
+    return results
+
+
+def mark_stockpile_sold(stockpile_id):
+    """標記囤貨為已賣出。"""
+    conn = get_db()
+    conn.execute("UPDATE stockpile SET sold = 1 WHERE id = ?", (stockpile_id,))
+    conn.commit()
+    conn.close()
+
+
 def get_available_dates(limit=30):
     """Get list of dates that have price data."""
     conn = get_db()
