@@ -21,10 +21,20 @@
 
 ### 1. 下載專案
 
+**方法一（會用 git 指令）**：
+
 ```bash
-git clone https://github.com/你的帳號/endfield-price-tracker.git
+git clone https://github.com/eric25382772/endfield-price-tracker.git
 cd endfield-price-tracker
 ```
+
+**方法二（不會指令，直接下載 ZIP）**：
+
+點此下載 → [endfield-price-tracker (ZIP)](https://github.com/eric25382772/endfield-price-tracker/archive/refs/heads/main.zip)
+
+或前往 [GitHub 倉庫頁面](https://github.com/eric25382772/endfield-price-tracker) → 點右上綠色 **Code** 按鈕 → **Download ZIP**
+
+下載後解壓縮到任意資料夾，之後所有操作都在該資料夾裡進行。
 
 ### 2. 安裝 Python 套件
 
