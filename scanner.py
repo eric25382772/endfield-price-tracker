@@ -25,8 +25,9 @@ from data.models import init_db
 from data.items import VALLEY_IV_GOODS, WULING_GOODS
 from data.repository import (
     get_all_items, upsert_price, upsert_friend_price,
-    delete_friend_prices_for_item, upsert_stockpile
+    delete_friend_prices_for_item, upsert_stockpile, upsert_quota
 )
+from data.items import REGION_QUOTA
 from ocr.engine import recognize
 from ocr.parser import parse_ocr_results
 from ocr.image_matcher import identify_items_by_image, get_card_positions, identify_friend_item
@@ -181,6 +182,44 @@ def match_prices_to_cards(card_results, price_blocks, img_height):
     return card_results
 
 
+def parse_remaining_quota(ocr_results, region, market_y):
+    """
+    從 OCR 結果找出剩餘配額數字。
+    遊戲市場畫面頂端會顯示類似「65/130」或「320/960」的配額數字。
+    只看市場標題上方區域（market_y 之上），避免被價格數字干擾。
+    """
+    if not region or region not in REGION_QUOTA:
+        return None
+    max_quota = REGION_QUOTA[region]['max']
+    daily = REGION_QUOTA[region]['daily']
+
+    search_area = [b for b in ocr_results if market_y <= 0 or b['center_y'] < market_y]
+
+    pattern_slash = re.compile(r'(\d{1,4})\s*[/／]\s*(\d{2,4})')
+    best = None
+    for block in search_area:
+        text = block['text']
+        for m in pattern_slash.finditer(text):
+            remaining, total = int(m.group(1)), int(m.group(2))
+            if total == max_quota and 0 <= remaining <= max_quota:
+                if best is None or block['center_y'] < best['y']:
+                    best = {'remaining': remaining, 'max': total, 'y': block['center_y']}
+
+    if best:
+        print(f"  剩餘配額: {best['remaining']}/{best['max']}")
+        return {'remaining': best['remaining'], 'max': best['max']}
+
+    pattern_num = re.compile(r'(?<!\d)(\d{1,4})(?!\d)')
+    for block in search_area:
+        for m in pattern_num.finditer(block['text']):
+            n = int(m.group(1))
+            if 0 <= n <= max_quota and (n % daily == 0 or n == max_quota):
+                print(f"  剩餘配額 (fallback): {n}/{max_quota}")
+                return {'remaining': n, 'max': max_quota}
+
+    return None
+
+
 def parse_holding_area(ocr_results, market_y, items_db):
     """
     解析「市場」文字上方的持有區物品。
@@ -213,7 +252,7 @@ def scan_with_image_match(filepath):
 
     if not region:
         print("  無法判斷區域，嘗試用舊方法")
-        return parsed_for_detect, None, []
+        return parsed_for_detect, None, [], None
 
     region_name = REGIONS.get(region, region)
     print(f"  偵測到區域: {region_name}")
@@ -233,6 +272,9 @@ def scan_with_image_match(filepath):
         for h in holdings:
             print(f"    [囤貨] {h['item_name']} = {h['price']}")
 
+    # 解析剩餘配額（市場文字上方）
+    quota = parse_remaining_quota(ocr_results, region, market_y)
+
     if market_y > 0:
         # 重新解析，只用市場區域內的 OCR 結果
         market_ocr = [b for b in ocr_results if b['center_y'] > market_y]
@@ -242,7 +284,7 @@ def scan_with_image_match(filepath):
             print(f"  OCR 文字辨識成功 ({len(complete)} 組)")
             for r in complete:
                 print(f"    [OK] {r['item_name']} = {r['price']}")
-            return parsed_market, region, holdings
+            return parsed_market, region, holdings, quota
 
     # OCR 文字不夠才用圖片比對
     complete_all = [r for r in parsed_for_detect if r['item_id'] and r['price']]
@@ -251,7 +293,7 @@ def scan_with_image_match(filepath):
         for r in complete_all:
             if r['item_id'] and r['price']:
                 print(f"    [OK] {r['item_name']} = {r['price']}")
-        return parsed_for_detect, region, holdings
+        return parsed_for_detect, region, holdings, quota
 
     # fallback: 圖片比對
     print("  OCR 文字不足，改用圖片比對...")
@@ -259,7 +301,7 @@ def scan_with_image_match(filepath):
 
     if not card_results:
         print("  圖片比對也失敗")
-        return parsed_for_detect, region, holdings
+        return parsed_for_detect, region, holdings, quota
 
     import cv2
     img = cv2.imread(filepath)
@@ -292,14 +334,14 @@ def scan_with_image_match(filepath):
     complete = [r for r in results if r['item_id'] and r['price']]
     print(f"  圖片比對結果: {len(complete)}/{len(results)} 組完整")
 
-    return results, region, holdings
+    return results, region, holdings, quota
 
 
 def process_my_prices(filepath):
     """處理一張自己市場的截圖。"""
     global last_f2_region
     try:
-        parsed, region, holdings = scan_with_image_match(filepath)
+        parsed, region, holdings, quota = scan_with_image_match(filepath)
 
         if not parsed:
             print("  未辨識到任何物品或價格")
@@ -328,6 +370,11 @@ def process_my_prices(filepath):
                 upsert_stockpile(h['item_id'], h['price'], region, game_date=game_date)
                 stockpile_saved += 1
                 print(f"  >> [囤貨] {h['item_name']}: {h['price']}")
+
+        # 儲存剩餘配額
+        if quota and region:
+            upsert_quota(region, quota['remaining'], quota['max'], game_date=game_date)
+            print(f"  >> [配額] {region_name} 剩餘 {quota['remaining']}/{quota['max']}")
 
         print(f"\n  已儲存 {saved} 筆自己的價格 ({region_name})")
         if stockpile_saved:

@@ -160,26 +160,35 @@ def compare():
     valley_comparison = get_profit_comparison('valley_iv', date)
     wuling_comparison = get_profit_comparison('wuling', date)
 
-    # Calculate totals
-    valley_total_profit = sum(r['profit'] for r in valley_comparison if r['profit'] is not None and r['profit'] > 0)
-    wuling_total_profit = sum(r['profit'] for r in wuling_comparison if r['profit'] is not None and r['profit'] > 0)
+    # 擇一最高利潤（配額限制下實際只能挑一種貨買）
+    def pick_best(rows):
+        profitable = [r for r in rows if r['profit'] is not None and r['profit'] > 0]
+        return max(profitable, key=lambda x: x['profit']) if profitable else None
 
-    # Find the best item overall
+    valley_best = pick_best(valley_comparison)
+    wuling_best = pick_best(wuling_comparison)
+
+    # 跨區 Top 5 排行
     all_items = valley_comparison + wuling_comparison
     profitable = [r for r in all_items if r['profit'] is not None and r['profit'] > 0]
     profitable.sort(key=lambda x: x['profit'], reverse=True)
 
-    # 囤貨資料
+    # 囤貨 + 剩餘配額
     stockpile = get_active_stockpile()
+    valley_quota = get_quota('valley_iv', date)
+    wuling_quota = get_quota('wuling', date)
 
     return render_template('compare.html',
                            valley_comparison=valley_comparison,
                            wuling_comparison=wuling_comparison,
-                           valley_total_profit=valley_total_profit,
-                           wuling_total_profit=wuling_total_profit,
+                           valley_best=valley_best,
+                           wuling_best=wuling_best,
                            top_profitable=profitable[:5],
                            friends=friends,
                            stockpile=stockpile,
+                           valley_quota=valley_quota,
+                           wuling_quota=wuling_quota,
+                           region_quota=REGION_QUOTA,
                            profit_threshold=PROFIT_THRESHOLD,
                            stockpile_threshold=STOCKPILE_THRESHOLD,
                            current_date=current_date,
