@@ -36,7 +36,27 @@ cd endfield-price-tracker
 
 下載後解壓縮到任意資料夾，之後所有操作都在該資料夾裡進行。
 
-### 2. 安裝 Python 套件
+### 2. 安裝 Python（非常重要！）
+
+> 如果電腦已裝過 Python 3.10 以上版本，可跳過此步驟。先打開 PowerShell 或 CMD，輸入 `python --version` 驗證。
+
+1. 前往 Python 官網下載頁：https://www.python.org/downloads/
+2. 點擊頁面上方綠色大按鈕下載最新穩定版（3.10 以上即可）
+3. 執行下載的安裝程式，**務必勾選最下方的「Add Python to PATH」**
+   - 這個選項沒勾，之後 `pip` 指令會找不到（如下圖錯誤訊息）
+4. 按「Install Now」完成安裝
+5. **驗證**：重新開一個 PowerShell 或 CMD 視窗（新開才會讀到剛裝的 Python），輸入：
+   ```
+   python --version
+   pip --version
+   ```
+   兩個都有顯示版本號（例如 `Python 3.12.x`、`pip 24.x`）就代表安裝成功。
+
+> **常見錯誤**：如果 `pip` 指令顯示 `pip : 無法辨識 'pip' 詞彙`，就是安裝 Python 時漏勾「Add Python to PATH」。
+>
+> **解決方式**：重新執行 Python 安裝程式 → 選 **Modify** → 下一頁勾選 `Add Python to environment variables` → 儲存。或者直接移除後重裝，記得勾選 PATH 那格。
+
+### 3. 安裝 Python 套件
 
 **在哪裡執行這個指令？**
 
@@ -50,13 +70,11 @@ cd endfield-price-tracker
 pip install -r requirements.txt
 ```
 
-> **需要系統管理員權限嗎？** 不用。安裝套件使用一般 PowerShell 即可（管理員權限只有啟動掃描器時才需要）。
->
-> **前置條件**：需已安裝 Python 3.10 以上版本，安裝時請勾選「Add Python to PATH」。可在 PowerShell 輸入 `python --version` 確認。
+> **需要系統管理員權限嗎？** 不用。一般視窗即可（管理員權限只有啟動掃描器時才需要）。
 >
 > 首次執行 OCR 時會自動下載語言模型（約 300-500 MB），請耐心等待。
 
-### 3. 啟動
+### 4. 啟動
 
 **只需啟動掃描器**，它會自動開啟網頁伺服器。
 
