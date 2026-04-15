@@ -24,52 +24,6 @@
     <strong>使用方式：</strong>開啟 <code>scanner.py</code> 後，在遊戲市場畫面按 <kbd>F2</kbd> 掃描自己價格，按 <kbd>F3</kbd> 掃描好友價格。也可在下方手動輸入。
 </div>
 
-{% if friends %}
-<div class="mb-3">
-    <small class="text-muted">已掃描的好友：</small>
-    {% for f in friends %}
-    <span class="badge bg-secondary">{{ f }}</span>
-    {% endfor %}
-</div>
-{% endif %}
-
-{# ===== TOP 5 最賺 ===== #}
-{% if top_profitable %}
-<div class="card mb-4 border-success">
-    <div class="card-header bg-success text-white">
-        <h5 class="mb-0">最賺排行</h5>
-    </div>
-    <div class="card-body p-0">
-        <table class="table table-hover align-middle mb-0">
-            <thead class="table-dark">
-                <tr>
-                    <th style="width:40px">#</th>
-                    <th>物品</th>
-                    <th class="text-center" style="width:100px">我的價格</th>
-                    <th class="text-center" style="width:100px">好友價格</th>
-                    <th class="text-center" style="width:80px">好友</th>
-                    <th class="text-center" style="width:120px">利潤</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in top_profitable %}
-                <tr>
-                    <td><span class="badge {% if loop.index == 1 %}bg-warning text-dark{% elif loop.index == 2 %}bg-light text-dark{% elif loop.index == 3 %}bg-secondary{% else %}bg-dark{% endif %}">{{ loop.index }}</span></td>
-                    <td>{{ item_image(item) }}<strong>{{ item.name_cn }}</strong></td>
-                    <td class="text-center">{{ item.my_price }}</td>
-                    <td class="text-center">{{ item.friend_price }}</td>
-                    <td class="text-center"><small>{{ item.best_friend or '-' }}</small></td>
-                    <td class="text-center">
-                        <span class="badge bg-success fs-6">+{{ item.profit }}</span>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
-{% endif %}
-
 {# ===== 四號谷地比對 ===== #}
 <div class="region-section mb-4">
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
