@@ -41,7 +41,9 @@ cd endfield-price-tracker
 **在哪裡執行這個指令？**
 
 1. 打開「檔案總管」進入剛剛解壓縮（或 clone）的專案資料夾（裡面會看到 `app.py`、`scanner.py`、`requirements.txt` 等檔案）
-2. 在資料夾空白處，按住 `Shift` + 滑鼠右鍵 → 選擇「**在這裡開啟 PowerShell 視窗**」或「**在終端中開啟**」
+2. 開啟終端機（PowerShell 或 CMD 皆可，二選一）：
+   - **PowerShell**：在資料夾空白處按住 `Shift` + 滑鼠右鍵 → 選擇「**在這裡開啟 PowerShell 視窗**」或「**在終端中開啟**」
+   - **CMD**：在檔案總管上方的網址列輸入 `cmd` 按 Enter，會直接在目前資料夾開啟命令提示字元
 3. 在跳出的視窗貼上以下指令並按 Enter：
 
 ```bash
