@@ -38,10 +38,20 @@ cd endfield-price-tracker
 
 ### 2. 安裝 Python 套件
 
+**在哪裡執行這個指令？**
+
+1. 打開「檔案總管」進入剛剛解壓縮（或 clone）的專案資料夾（裡面會看到 `app.py`、`scanner.py`、`requirements.txt` 等檔案）
+2. 在資料夾空白處，按住 `Shift` + 滑鼠右鍵 → 選擇「**在這裡開啟 PowerShell 視窗**」或「**在終端中開啟**」
+3. 在跳出的視窗貼上以下指令並按 Enter：
+
 ```bash
 pip install -r requirements.txt
 ```
 
+> **需要系統管理員權限嗎？** 不用。安裝套件使用一般 PowerShell 即可（管理員權限只有啟動掃描器時才需要）。
+>
+> **前置條件**：需已安裝 Python 3.10 以上版本，安裝時請勾選「Add Python to PATH」。可在 PowerShell 輸入 `python --version` 確認。
+>
 > 首次執行 OCR 時會自動下載語言模型（約 300-500 MB），請耐心等待。
 
 ### 3. 啟動
