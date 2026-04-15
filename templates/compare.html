@@ -73,11 +73,11 @@
 {# ===== 四號谷地比對 ===== #}
 <div class="region-section mb-4">
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-        <h4 class="region-title mb-0">
+        <h4 class="region-title mb-0 d-flex align-items-center gap-2">
             <span class="region-badge valley">四號谷地</span>
-            <small class="text-muted ms-2">
+            <span class="badge bg-warning text-dark fs-6">
                 剩餘 {% if valley_quota %}{{ valley_quota.remaining }}{% else %}?{% endif %} / {{ region_quota.valley_iv.max }}
-            </small>
+            </span>
         </h4>
         {% if valley_best %}
         <span class="text-success fw-bold">
@@ -153,11 +153,11 @@
 {# ===== 武陵比對 ===== #}
 <div class="region-section mb-4">
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-        <h4 class="region-title mb-0">
+        <h4 class="region-title mb-0 d-flex align-items-center gap-2">
             <span class="region-badge wuling">武陵</span>
-            <small class="text-muted ms-2">
+            <span class="badge bg-warning text-dark fs-6">
                 剩餘 {% if wuling_quota %}{{ wuling_quota.remaining }}{% else %}?{% endif %} / {{ region_quota.wuling.max }}
-            </small>
+            </span>
         </h4>
         {% if wuling_best %}
         <span class="text-success fw-bold">
