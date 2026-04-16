@@ -534,18 +534,6 @@ def scan_friend_prices():
         print(f"  截圖錯誤: {e}")
 
 
-def reset_friend_references():
-    """F4: 清除所有好友參考圖片，重新學習。"""
-    import shutil
-    from ocr.image_matcher import FRIEND_REF_DIR
-    if os.path.exists(FRIEND_REF_DIR):
-        shutil.rmtree(FRIEND_REF_DIR)
-        os.makedirs(FRIEND_REF_DIR, exist_ok=True)
-    # 清除快取
-    from ocr import image_matcher
-    image_matcher._friend_ref_images = {}
-    print(f"\n  ★ 已清除所有好友參考圖片，下次 F3 將重新學習")
-
 
 def worker_f2():
     """背景執行緒：依序處理 F2 佇列中的截圖。"""
@@ -578,7 +566,6 @@ def main():
     print()
     print("  F2  = 掃描自己的市場價格")
     print("  F3  = 掃描好友的市場價格")
-    print("  F4  = 清除好友參考圖（辨識錯誤時按此重來）")
     print("  ESC = 結束程式")
     print()
     print("  * 區域自動偵測（不需手動切換）")
@@ -610,7 +597,6 @@ def main():
 
     keyboard.on_press_key('f2', lambda _: scan_my_prices())
     keyboard.on_press_key('f3', lambda _: scan_friend_prices())
-    keyboard.on_press_key('f4', lambda _: reset_friend_references())
 
     keyboard.wait('esc')
     print("\n程式結束。")
