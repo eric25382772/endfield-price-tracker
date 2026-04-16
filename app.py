@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from config import REGIONS, get_game_date, PROFIT_THRESHOLD, STOCKPILE_THRESHOLD
 from data.models import init_db
 from data.items import REGION_QUOTA
@@ -6,7 +6,7 @@ from data.repository import (
     upsert_price, upsert_quota, get_quota,
     get_available_dates,
     upsert_friend_price,
-    get_friend_names, get_profit_comparison,
+    get_friend_names, get_profit_comparison, get_item_profit,
     get_active_stockpile, mark_stockpile_sold
 )
 
@@ -130,6 +130,44 @@ def stockpile_sell():
         mark_stockpile_sold(stockpile_id)
         flash('已標記為賣出', 'success')
     return redirect(url_for('compare'))
+
+
+@app.route('/api/price', methods=['POST'])
+def api_price():
+    """API：編輯我的價格"""
+    data = request.get_json()
+    item_id = data.get('item_id')
+    market_price = data.get('market_price')
+    game_date = data.get('game_date')
+
+    if not all([item_id, market_price]):
+        return jsonify(ok=False, error='請填寫所有欄位'), 400
+    if not (100 <= market_price <= 8000):
+        return jsonify(ok=False, error='價格必須在 100-8000 之間'), 400
+
+    upsert_price(item_id, market_price, game_date=game_date, source='manual')
+    row = get_item_profit(item_id, game_date)
+    return jsonify(ok=True, **row)
+
+
+@app.route('/api/friend-price', methods=['POST'])
+def api_friend_price():
+    """API：編輯好友價格"""
+    data = request.get_json()
+    item_id = data.get('item_id')
+    market_price = data.get('market_price')
+    friend_name = data.get('friend_name') or '好友'
+    game_date = data.get('game_date')
+
+    if not all([item_id, market_price]):
+        return jsonify(ok=False, error='請填寫所有欄位'), 400
+    if not (100 <= market_price <= 8000):
+        return jsonify(ok=False, error='價格必須在 100-8000 之間'), 400
+
+    upsert_friend_price(item_id, market_price, friend_name=friend_name,
+                        game_date=game_date, source='manual')
+    row = get_item_profit(item_id, game_date)
+    return jsonify(ok=True, **row)
 
 
 if __name__ == '__main__':

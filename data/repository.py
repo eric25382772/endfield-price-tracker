@@ -199,6 +199,42 @@ def get_profit_comparison(region, game_date=None):
     return [dict(row) for row in rows]
 
 
+def get_item_profit(item_id, game_date=None):
+    """Get profit comparison data for a single item."""
+    if game_date is None:
+        game_date = get_game_date()
+    conn = get_db()
+    row = conn.execute("""
+        SELECT i.id as item_id, i.name_cn, i.name_en, i.base_price, i.region,
+               p.market_price as my_price,
+               fp_best.best_price as friend_price,
+               fp_best.best_friend_name as best_friend,
+               CASE
+                   WHEN p.market_price IS NOT NULL AND fp_best.best_price IS NOT NULL
+                   THEN fp_best.best_price - p.market_price
+                   ELSE NULL
+               END as profit
+        FROM items i
+        LEFT JOIN prices p ON i.id = p.item_id AND p.game_date = ?
+        LEFT JOIN (
+            SELECT fp.item_id,
+                   fp.market_price as best_price,
+                   fp.friend_name as best_friend_name
+            FROM friend_prices fp
+            WHERE fp.game_date = ?
+              AND fp.market_price = (
+                  SELECT MAX(fp2.market_price)
+                  FROM friend_prices fp2
+                  WHERE fp2.item_id = fp.item_id AND fp2.game_date = fp.game_date
+              )
+            GROUP BY fp.item_id
+        ) fp_best ON i.id = fp_best.item_id
+        WHERE i.id = ?
+    """, (game_date, game_date, item_id)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
 def upsert_stockpile(item_id, buy_price, region, game_date=None):
     """記錄囤貨（持有區偵測到的物品）。同一天同物品只記一筆。"""
     if game_date is None:

@@ -21,7 +21,7 @@
 </div>
 
 <div class="alert alert-info py-2 mb-3">
-    <strong>使用方式：</strong>開啟 <code>scanner.py</code> 後，在遊戲市場畫面按 <kbd>F2</kbd> 掃描自己價格，按 <kbd>F3</kbd> 掃描好友價格。也可在下方手動輸入。
+    <strong>使用方式：</strong>開啟 <code>scanner.py</code> 後，在遊戲市場畫面按 <kbd>F2</kbd> 掃描自己價格，按 <kbd>F3</kbd> 掃描好友價格。也可直接點擊價格欄位編輯。
 </div>
 
 {# ===== 四號谷地比對 ===== #}
@@ -53,22 +53,31 @@
             </thead>
             <tbody>
                 {% for item in valley_comparison %}
-                <tr class="{% if item.profit is not none and item.profit >= profit_threshold %}table-success{% elif item.profit is not none and item.profit < 0 %}table-danger{% endif %}">
+                <tr data-item-id="{{ item.item_id }}" class="{% if item.profit is not none and item.profit >= profit_threshold %}table-success{% elif item.profit is not none and item.profit < 0 %}table-danger{% endif %}">
                     <td>
                         {{ item_image(item) }}
                         <strong>{{ item.name_cn }}</strong>
                         <br><small class="text-muted ms-5">{{ item.name_en }}</small>
                     </td>
-                    <td class="text-center">
-                        {% if item.my_price is not none %}{{ item.my_price }}{% else %}<span class="text-muted">-</span>{% endif %}
+                    <td class="text-center editable-cell"
+                        data-type="my_price"
+                        data-item-id="{{ item.item_id }}"
+                        data-game-date="{{ selected_date or current_date }}">
+                        <span class="cell-value">{% if item.my_price is not none %}{{ item.my_price }}{% else %}-{% endif %}</span>
+                        <button class="btn btn-sm edit-btn ms-1" title="編輯">&#9998;</button>
                     </td>
-                    <td class="text-center">
-                        {% if item.friend_price is not none %}{{ item.friend_price }}{% else %}<span class="text-muted">-</span>{% endif %}
+                    <td class="text-center editable-cell"
+                        data-type="friend_price"
+                        data-item-id="{{ item.item_id }}"
+                        data-friend-name="{{ item.best_friend or '好友' }}"
+                        data-game-date="{{ selected_date or current_date }}">
+                        <span class="cell-value">{% if item.friend_price is not none %}{{ item.friend_price }}{% else %}-{% endif %}</span>
+                        <button class="btn btn-sm edit-btn ms-1" title="編輯">&#9998;</button>
                     </td>
                     <td class="text-center">
                         <small>{{ item.best_friend or '-' }}</small>
                     </td>
-                    <td class="text-center fw-bold">
+                    <td class="text-center fw-bold profit-cell">
                         {% if item.profit is not none %}
                             <span class="{% if item.profit > 0 %}text-success{% elif item.profit < 0 %}text-danger{% endif %}">
                                 {% if item.profit > 0 %}+{% endif %}{{ item.profit }}
@@ -77,7 +86,7 @@
                             <span class="text-muted">-</span>
                         {% endif %}
                     </td>
-                    <td class="text-center">
+                    <td class="text-center badge-cell">
                         {% if item.profit is not none %}
                             {% if item.profit >= profit_threshold %}
                                 <span class="badge bg-success">必買</span>
@@ -133,22 +142,31 @@
             </thead>
             <tbody>
                 {% for item in wuling_comparison %}
-                <tr class="{% if item.profit is not none and item.profit >= profit_threshold %}table-success{% elif item.profit is not none and item.profit < 0 %}table-danger{% endif %}">
+                <tr data-item-id="{{ item.item_id }}" class="{% if item.profit is not none and item.profit >= profit_threshold %}table-success{% elif item.profit is not none and item.profit < 0 %}table-danger{% endif %}">
                     <td>
                         {{ item_image(item) }}
                         <strong>{{ item.name_cn }}</strong>
                         <br><small class="text-muted ms-5">{{ item.name_en }}</small>
                     </td>
-                    <td class="text-center">
-                        {% if item.my_price is not none %}{{ item.my_price }}{% else %}<span class="text-muted">-</span>{% endif %}
+                    <td class="text-center editable-cell"
+                        data-type="my_price"
+                        data-item-id="{{ item.item_id }}"
+                        data-game-date="{{ selected_date or current_date }}">
+                        <span class="cell-value">{% if item.my_price is not none %}{{ item.my_price }}{% else %}-{% endif %}</span>
+                        <button class="btn btn-sm edit-btn ms-1" title="編輯">&#9998;</button>
                     </td>
-                    <td class="text-center">
-                        {% if item.friend_price is not none %}{{ item.friend_price }}{% else %}<span class="text-muted">-</span>{% endif %}
+                    <td class="text-center editable-cell"
+                        data-type="friend_price"
+                        data-item-id="{{ item.item_id }}"
+                        data-friend-name="{{ item.best_friend or '好友' }}"
+                        data-game-date="{{ selected_date or current_date }}">
+                        <span class="cell-value">{% if item.friend_price is not none %}{{ item.friend_price }}{% else %}-{% endif %}</span>
+                        <button class="btn btn-sm edit-btn ms-1" title="編輯">&#9998;</button>
                     </td>
                     <td class="text-center">
                         <small>{{ item.best_friend or '-' }}</small>
                     </td>
-                    <td class="text-center fw-bold">
+                    <td class="text-center fw-bold profit-cell">
                         {% if item.profit is not none %}
                             <span class="{% if item.profit > 0 %}text-success{% elif item.profit < 0 %}text-danger{% endif %}">
                                 {% if item.profit > 0 %}+{% endif %}{{ item.profit }}
@@ -157,7 +175,7 @@
                             <span class="text-muted">-</span>
                         {% endif %}
                     </td>
-                    <td class="text-center">
+                    <td class="text-center badge-cell">
                         {% if item.profit is not none %}
                             {% if item.profit >= profit_threshold %}
                                 <span class="badge bg-success">必買</span>
@@ -251,47 +269,12 @@
     </div>
 </div>
 {% endif %}
+{% endblock %}
 
-{# ===== 手動輸入好友價格 ===== #}
-<div class="card mt-4">
-    <div class="card-header">
-        <h5 class="mb-0">手動輸入好友價格</h5>
-    </div>
-    <div class="card-body">
-        <form method="POST" action="/friend/manual">
-            <input type="hidden" name="game_date" value="{{ selected_date or current_date }}">
-            <div class="row mb-3">
-                <div class="col-md-3">
-                    <label class="form-label">好友名稱</label>
-                    <input type="text" name="friend_name" class="form-control"
-                           value="好友" placeholder="好友名稱">
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">物品</label>
-                    <select name="item_id" class="form-select" required>
-                        <option value="">選擇物品...</option>
-                        <optgroup label="四號谷地">
-                        {% for item in valley_comparison %}
-                        <option value="{{ item.item_id }}">{{ item.name_cn }}</option>
-                        {% endfor %}
-                        </optgroup>
-                        <optgroup label="武陵">
-                        {% for item in wuling_comparison %}
-                        <option value="{{ item.item_id }}">{{ item.name_cn }}</option>
-                        {% endfor %}
-                        </optgroup>
-                    </select>
-                </div>
-                <div class="col-md-3">
-                    <label class="form-label">好友市場價格</label>
-                    <input type="number" name="market_price" class="form-control"
-                           min="100" max="8000" required placeholder="100-8000">
-                </div>
-                <div class="col-md-3 d-flex align-items-end">
-                    <button type="submit" class="btn btn-primary w-100">儲存</button>
-                </div>
-            </div>
-        </form>
-    </div>
-</div>
+{% block scripts %}
+<script>
+    window.PROFIT_THRESHOLD = {{ profit_threshold }};
+    window.STOCKPILE_THRESHOLD = {{ stockpile_threshold }};
+</script>
+<script src="/static/js/inline_edit.js"></script>
 {% endblock %}

@@ -121,3 +121,38 @@ body {
 .spinner-overlay.active {
     display: flex;
 }
+
+/* Inline edit */
+.editable-cell .edit-btn {
+    opacity: 0;
+    transition: opacity 0.15s;
+    border: none;
+    background: none;
+    color: #888;
+    font-size: 0.75rem;
+    line-height: 1;
+    padding: 0 2px;
+}
+
+.editable-cell:hover .edit-btn {
+    opacity: 0.7;
+}
+
+.editable-cell .edit-btn:hover {
+    opacity: 1;
+    color: #5a9fd4;
+}
+
+.inline-edit-form .form-control {
+    width: 80px;
+    text-align: center;
+}
+
+.cell-flash {
+    animation: cellFlash 0.6s ease;
+}
+
+@keyframes cellFlash {
+    0% { background-color: rgba(76, 175, 80, 0.3); }
+    100% { background-color: transparent; }
+}
