@@ -417,9 +417,7 @@ def identify_friend_item(screenshot_path, region_hint=None):
         print(f"  使用市場卡片參考圖比對 (好友參考圖不足)")
         item_id, score = match_item_features(crop, ref_images, region_ids)
 
-    # 自動儲存好友裁切圖作為參考 (下次比對會更準)
-    if item_id:
-        save_friend_reference(item_id, crop)
+    # 不再自動覆寫參考圖 — 避免辨識錯誤時污染原始參考圖
 
     # 判斷區域
     region = region_hint
