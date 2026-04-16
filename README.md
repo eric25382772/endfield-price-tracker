@@ -48,11 +48,10 @@ cd endfield-price-tracker
 5. **驗證**：重新開一個 PowerShell 或 CMD 視窗（新開才會讀到剛裝的 Python），輸入：
    ```
    python --version
-   pip --version
    ```
-   兩個都有顯示版本號（例如 `Python 3.12.x`、`pip 24.x`）就代表安裝成功。
+   有顯示版本號（例如 `Python 3.12.x`）就代表安裝成功。
 
-> **常見錯誤**：如果 `pip` 指令顯示 `pip : 無法辨識 'pip' 詞彙`，就是安裝 Python 時漏勾「Add Python to PATH」。
+> **常見錯誤**：如果顯示「無法辨識 'python' 詞彙」或「不是內部或外部命令」，就是安裝時漏勾「Add Python to PATH」。
 >
 > **解決方式**：重新執行 Python 安裝程式 → 選 **Modify** → 下一頁勾選 `Add Python to environment variables` → 儲存。或者直接移除後重裝，記得勾選 PATH 那格。
 
