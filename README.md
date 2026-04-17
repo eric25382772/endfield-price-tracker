@@ -1,6 +1,6 @@
 # 終末地 彈性物資價格追蹤器
 
-> 📌 目前 GitHub 上架版本：**v1.9**
+> 📌 目前 GitHub 上架版本：**v1.10**
 
 明日方舟：終末地 (Arknights: Endfield) 的彈性物資市場價格追蹤工具。
 自動辨識遊戲畫面中的物品與價格，比對好友市場找出最佳利潤。
@@ -57,23 +57,20 @@ cd endfield-price-tracker
 >
 > **解決方式**：重新執行 Python 安裝程式 → 選 **Modify** → 下一頁勾選 `Add Python to environment variables` → 儲存。或者直接移除後重裝，記得勾選 PATH 那格。
 
-### 3. 安裝 Python 套件
+### 3. 一鍵安裝套件
 
-**在哪裡執行這個指令？**
+打開專案資料夾（裡面會看到 `install.bat`、`scanner.py` 等檔案），**雙擊 `install.bat`** 即可。
 
-1. 打開「檔案總管」進入剛剛解壓縮（或 clone）的專案資料夾（裡面會看到 `app.py`、`scanner.py`、`requirements.txt` 等檔案）
-2. 開啟終端機（PowerShell 或 CMD 皆可，二選一）：
-   - **PowerShell**：在資料夾空白處按住 `Shift` + 滑鼠右鍵 → 選擇「**在這裡開啟 PowerShell 視窗**」或「**在終端中開啟**」
-   - **CMD**：在檔案總管上方的網址列輸入 `cmd` 按 Enter，會直接在目前資料夾開啟命令提示字元
-3. 在跳出的視窗貼上以下指令並按 Enter：
+腳本會自動：
+1. 檢查 Python 版本
+2. 安裝所有 Python 套件（`pip install -r requirements.txt`）
+3. 預先下載 OCR 中文模型（約 300-500 MB，只需一次）
 
-```bash
-pip install -r requirements.txt
-```
+整個過程約需 5-15 分鐘（視網路速度），中間 OCR 模型下載階段畫面可能停住沒動，**這是正常的，不要關掉視窗**。看到「[OK] 安裝完成！」字樣就成功了。
 
-> **需要系統管理員權限嗎？** 不用。一般視窗即可（管理員權限只有啟動掃描器時才需要）。
+> **需要系統管理員權限嗎？** 不用。雙擊一般視窗即可（管理員權限只有啟動掃描器時才需要）。
 >
-> 首次執行 OCR 時會自動下載語言模型（約 300-500 MB），請耐心等待。
+> **手動安裝**（不用 install.bat 的話）：在專案資料夾按 Shift + 右鍵 → 開啟 PowerShell → 輸入 `pip install -r requirements.txt`。
 
 ### 4. 啟動
 
@@ -122,7 +119,8 @@ python scanner.py
 
 ## 版本更新紀錄 (Changelog)
 
-- **v1.9** — ✅ 目前版本 — 利潤比對改版：移除手動輸入卡片，價格欄位直接點擊編輯
+- **v1.10** — ✅ 目前版本 — 新增 `install.bat` 一鍵安裝腳本：自動檢查 Python、裝套件、預先下載 OCR 模型
+- **v1.9** — 利潤比對改版：移除手動輸入卡片，價格欄位直接點擊編輯
 - **v1.8** — 精簡：移除未使用的價格表與截圖上傳頁，首頁直接導向利潤比對
 - **v1.7** — 最佳單項利潤 + 剩餘配額顯示（含多次 UI 微調）
 - **v1.6** — 囤貨追蹤：持有區自動偵測、利潤門檻建議、囤貨管理
@@ -147,6 +145,7 @@ python scanner.py
 ├── app.py              # Flask 網頁伺服器
 ├── scanner.py          # 背景掃描器（快捷鍵 + OCR）
 ├── config.py           # 設定檔
+├── install.bat         # 一鍵安裝腳本（雙擊即可）
 ├── start_scanner.bat   # 掃描器啟動捷徑
 ├── requirements.txt    # Python 套件依賴
 ├── data/
