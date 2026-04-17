@@ -60,7 +60,7 @@ echo.
 
 echo [3/3] 預先下載 OCR 中文模型（約 300-500 MB，只需一次）...
 echo   下載中，請耐心等待，畫面沒動不代表當機...
-python -c "import easyocr; easyocr.Reader(['ch_sim','en'], gpu=False)"
+python -c "import easyocr; easyocr.Reader(['ch_tra','en'], gpu=False)"
 if errorlevel 1 (
     echo.
     echo [警告] OCR 模型預先下載失敗，但不影響使用。

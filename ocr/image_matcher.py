@@ -210,8 +210,8 @@ FRIEND_ITEM_IMAGE_RECT = {
     'x1': 500, 'y1': 400, 'x2': 780, 'y2': 680,
 }
 
-# 好友畫面專用參考圖片目錄
-FRIEND_REF_DIR = os.path.join(REF_DIR, 'friend')
+# 好友畫面專用參考圖片目錄（安裝版改用 %LOCALAPPDATA%，由 config 集中管理）
+from config import FRIEND_REF_DIR  # noqa: E402
 
 # 好友參考圖片快取
 _friend_ref_images = {}

@@ -3,11 +3,21 @@ from datetime import datetime, timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Database
-DB_PATH = os.path.join(BASE_DIR, 'data', 'prices.db')
+# 可寫資料目錄：安裝版（Program Files 唯讀）導向 %LOCALAPPDATA%；開發版仍用 BASE_DIR
+_INSTALLED = 'Program Files' in BASE_DIR or bool(os.environ.get('ENDFIELD_DATA_DIR'))
+if _INSTALLED:
+    USER_DATA_DIR = os.environ.get('ENDFIELD_DATA_DIR') or \
+        os.path.join(os.environ.get('LOCALAPPDATA', BASE_DIR), 'EndfieldTracker')
+    os.makedirs(USER_DATA_DIR, exist_ok=True)
+    DB_PATH = os.path.join(USER_DATA_DIR, 'prices.db')
+    UPLOAD_FOLDER = os.path.join(USER_DATA_DIR, 'uploads')
+    FRIEND_REF_DIR = os.path.join(USER_DATA_DIR, 'friend_refs')
+else:
+    USER_DATA_DIR = BASE_DIR
+    DB_PATH = os.path.join(BASE_DIR, 'data', 'prices.db')
+    UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
+    FRIEND_REF_DIR = os.path.join(BASE_DIR, 'data', 'item_images', 'friend')
 
-# Upload
-UPLOAD_FOLDER = os.path.join(BASE_DIR, 'uploads')
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'bmp'}
 
 # Game

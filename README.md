@@ -1,6 +1,6 @@
 # 終末地 彈性物資價格追蹤器
 
-> 📌 目前 GitHub 上架版本：**v1.10**
+> 📌 目前 GitHub 上架版本：**v1.11**
 
 明日方舟：終末地 (Arknights: Endfield) 的彈性物資市場價格追蹤工具。
 自動辨識遊戲畫面中的物品與價格，比對好友市場找出最佳利潤。
@@ -21,7 +21,34 @@
 
 ## 安裝
 
-### 1. 下載專案
+依使用者熟悉度由易到難，**新手請選方案 A**。
+
+---
+
+### 方案 A（推薦，新手）：安裝精靈 .exe
+
+最簡單：連 Python 都不用自己裝。
+
+1. 到 [GitHub Releases](https://github.com/eric25382772/endfield-price-tracker/releases) 下載最新的 `EndfieldTracker_Setup_vX.XX.exe`（約 10-30 MB）
+2. 雙擊執行 → 同意 → 下一步 → 安裝
+3. 過程中安裝精靈會自動：
+   - 偵測並安裝 Python 3.12（若未安裝）
+   - 下載 Python 套件
+   - 預先下載 OCR 中文模型（300-500 MB）
+   - 在桌面與開始選單建立「終末地追蹤器」捷徑
+4. 全程約需 10-15 分鐘（視網路速度），中途看似停住是正常的，**請勿關閉**
+5. 完成後雙擊桌面捷徑即可啟動（會自動跳管理員權限請求）
+
+> Windows SmartScreen 可能跳警告（因為沒做程式碼簽章），點「其他資訊 → 仍要執行」即可。
+
+---
+
+### 方案 B（進階）：手動裝 Python + 一鍵腳本
+
+適合已經會用 Python 或想跳過 setup.exe 的使用者。下面四步：
+
+#### B1. 下載專案
+
 
 **方法一（會用 git 指令）**：
 
@@ -38,7 +65,7 @@ cd endfield-price-tracker
 
 下載後解壓縮到任意資料夾，之後所有操作都在該資料夾裡進行。
 
-### 2. 安裝 Python（非常重要！）
+#### B2. 安裝 Python（非常重要！）
 
 > 如果電腦已裝過 Python 3.10 以上版本，可跳過此步驟。先打開 PowerShell 或 CMD，輸入 `python --version` 驗證。
 
@@ -57,7 +84,7 @@ cd endfield-price-tracker
 >
 > **解決方式**：重新執行 Python 安裝程式 → 選 **Modify** → 下一頁勾選 `Add Python to environment variables` → 儲存。或者直接移除後重裝，記得勾選 PATH 那格。
 
-### 3. 一鍵安裝套件
+#### B3. 一鍵安裝套件
 
 打開專案資料夾（裡面會看到 `install.bat`、`scanner.py` 等檔案），**雙擊 `install.bat`** 即可。
 
@@ -72,7 +99,7 @@ cd endfield-price-tracker
 >
 > **手動安裝**（不用 install.bat 的話）：在專案資料夾按 Shift + 右鍵 → 開啟 PowerShell → 輸入 `pip install -r requirements.txt`。
 
-### 4. 啟動
+#### B4. 啟動
 
 **只需啟動掃描器**，它會自動開啟網頁伺服器。
 
@@ -89,6 +116,19 @@ python scanner.py
 - 瀏覽器前往 **http://127.0.0.1:5000** 即可查看
 
 > 掃描器需要管理員權限才能監聽全域快捷鍵（F2 / F3 / F4）。
+
+---
+
+### 方案 C（開發者）：git clone
+
+```bash
+git clone https://github.com/eric25382772/endfield-price-tracker.git
+cd endfield-price-tracker
+pip install -r requirements.txt
+python scanner.py
+```
+
+開發模式下，資料庫與好友參考圖會寫在專案資料夾本身（`data/prices.db`、`data/item_images/friend/`）。安裝版會自動改用 `%LOCALAPPDATA%\EndfieldTracker\`。
 
 ## 使用方式
 
@@ -119,7 +159,8 @@ python scanner.py
 
 ## 版本更新紀錄 (Changelog)
 
-- **v1.10** — ✅ 目前版本 — 新增 `install.bat` 一鍵安裝腳本：自動檢查 Python、裝套件、預先下載 OCR 模型
+- **v1.11** — ✅ 目前版本 — Inno Setup 安裝精靈 `EndfieldTracker_Setup.exe`：Python 自動下載安裝、可寫資料移到 `%LOCALAPPDATA%\EndfieldTracker\`、修正 install.bat OCR 模型語系錯誤
+- **v1.10** — `install.bat` 一鍵安裝腳本：自動檢查 Python、裝套件、預先下載 OCR 模型
 - **v1.9** — 利潤比對改版：移除手動輸入卡片，價格欄位直接點擊編輯
 - **v1.8** — 精簡：移除未使用的價格表與截圖上傳頁，首頁直接導向利潤比對
 - **v1.7** — 最佳單項利潤 + 剩餘配額顯示（含多次 UI 微調）

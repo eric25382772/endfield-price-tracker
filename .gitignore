@@ -10,3 +10,5 @@ build/
 venv/
 .claude/
 data/item_images/_debug_*
+installer/InnoDownloadPlugin/
+installer/python-*.exe

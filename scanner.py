@@ -20,7 +20,7 @@ import keyboard
 import mss
 import mss.tools
 
-from config import get_game_date, REGIONS
+from config import get_game_date, REGIONS, UPLOAD_FOLDER
 from data.models import init_db
 from data.items import VALLEY_IV_GOODS, WULING_GOODS
 from data.repository import (
@@ -92,9 +92,8 @@ def capture_foreground_window():
             'height': win['height'],
         }
         screenshot = sct.grab(monitor)
-        upload_dir = os.path.join(os.path.dirname(__file__), 'uploads')
-        os.makedirs(upload_dir, exist_ok=True)
-        tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False, dir=upload_dir)
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False, dir=UPLOAD_FOLDER)
         mss.tools.to_png(screenshot.rgb, screenshot.size, output=tmp.name)
         return tmp.name
 
