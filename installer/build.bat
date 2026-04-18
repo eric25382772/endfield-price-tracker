@@ -3,9 +3,9 @@ chcp 65001 >nul
 setlocal
 
 set ISCC="C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+if not exist %ISCC% set ISCC="%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe"
 if not exist %ISCC% (
-    echo [錯誤] 找不到 Inno Setup 6 編譯器：
-    echo   %ISCC%
+    echo [錯誤] 找不到 Inno Setup 6 編譯器。
     echo.
     echo 請先安裝 Inno Setup 6：https://jrsoftware.org/isdl.php
     echo 並安裝 InnoDownloadPlugin：https://mitrich.net/blog/inno-download-plugin/
