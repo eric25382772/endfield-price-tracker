@@ -3,8 +3,13 @@ from datetime import datetime, timedelta
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 可寫資料目錄：安裝版（Program Files 唯讀）導向 %LOCALAPPDATA%；開發版仍用 BASE_DIR
-_INSTALLED = 'Program Files' in BASE_DIR or bool(os.environ.get('ENDFIELD_DATA_DIR'))
+# 可寫資料目錄：安裝版導向 %LOCALAPPDATA%；開發版仍用 BASE_DIR
+# 偵測方式：Inno Setup 安裝後會在 BASE_DIR 留下 unins000.exe，據此判斷
+_INSTALLED = (
+    bool(os.environ.get('ENDFIELD_DATA_DIR'))
+    or os.path.exists(os.path.join(BASE_DIR, 'unins000.exe'))
+    or 'Program Files' in BASE_DIR
+)
 if _INSTALLED:
     USER_DATA_DIR = os.environ.get('ENDFIELD_DATA_DIR') or \
         os.path.join(os.environ.get('LOCALAPPDATA', BASE_DIR), 'EndfieldTracker')
