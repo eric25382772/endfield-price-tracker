@@ -20,7 +20,7 @@
 
 ## 安裝
 
-1. 下載 `EndfieldTracker_Setup_vX.XX.exe`
+1. 到 [Releases](https://github.com/eric25382772/endfield-price-tracker/releases) 下載 `EndfieldTracker_Setup_vX.XX.exe`
 2. 雙擊執行，一路「下一步」到完成
    - 安裝過程會自動連網下載並安裝 Python 3.12（若電腦沒裝過）
    - 再下載所需套件與 OCR 中文模型（約 300-500 MB）
