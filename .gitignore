@@ -12,3 +12,4 @@ venv/
 data/item_images/_debug_*
 installer/InnoDownloadPlugin/
 installer/python-*.exe
+EndfieldTracker_Setup_*.exe
