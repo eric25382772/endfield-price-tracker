@@ -1,6 +1,6 @@
 # 終末地 彈性物資價格追蹤器
 
-> 📌 目前 GitHub 上架版本：**v1.11**
+> 目前 GitHub 上架版本：**v1.11**
 
 明日方舟：終末地 (Arknights: Endfield) 的彈性物資市場價格追蹤工具。
 自動辨識遊戲畫面中的物品與價格，比對好友市場找出最佳利潤。
@@ -14,121 +14,20 @@
 
 ## 系統需求
 
-- **作業系統**：Windows 10 / 11
-- **Python**：3.10 以上
-- **遊戲解析度**：建議 2560x1440，最低支援 1920x1080
-- **網路**：首次啟動需要網路下載 OCR 模型
+- Windows 10 / 11
+- 遊戲解析度建議 2560x1440（最低 1920x1080）
+- 首次啟動需網路下載 OCR 模型
 
 ## 安裝
 
-依使用者熟悉度由易到難，**新手請選方案 A**。
+1. 下載 `EndfieldTracker_Setup_vX.XX.exe`
+2. 雙擊執行，一路「下一步」到完成
+   - 安裝過程會自動連網下載並安裝 Python 3.12（若電腦沒裝過）
+   - 再下載所需套件與 OCR 中文模型（約 300-500 MB）
+   - 全程約 10-15 分鐘，畫面偶爾停住是正常的，請勿關閉
+3. 完成後雙擊桌面的「終末地追蹤器」捷徑啟動（會自動請求管理員權限）
 
----
-
-### 方案 A（推薦，新手）：安裝精靈 .exe
-
-最簡單：連 Python 都不用自己裝。
-
-1. 到 [GitHub Releases](https://github.com/eric25382772/endfield-price-tracker/releases) 下載最新的 `EndfieldTracker_Setup_vX.XX.exe`（約 10-30 MB）
-2. 雙擊執行 → 同意 → 下一步 → 安裝
-3. 過程中安裝精靈會自動：
-   - 偵測並安裝 Python 3.12（若未安裝）
-   - 下載 Python 套件
-   - 預先下載 OCR 中文模型（300-500 MB）
-   - 在桌面與開始選單建立「終末地追蹤器」捷徑
-4. 全程約需 10-15 分鐘（視網路速度），中途看似停住是正常的，**請勿關閉**
-5. 完成後雙擊桌面捷徑即可啟動（會自動跳管理員權限請求）
-
-> Windows SmartScreen 可能跳警告（因為沒做程式碼簽章），點「其他資訊 → 仍要執行」即可。
-
----
-
-### 方案 B（進階）：手動裝 Python + 一鍵腳本
-
-適合已經會用 Python 或想跳過 setup.exe 的使用者。下面四步：
-
-#### B1. 下載專案
-
-
-**方法一（會用 git 指令）**：
-
-```bash
-git clone https://github.com/eric25382772/endfield-price-tracker.git
-cd endfield-price-tracker
-```
-
-**方法二（不會指令，直接下載 ZIP）**：
-
-點此下載 → [endfield-price-tracker (ZIP)](https://github.com/eric25382772/endfield-price-tracker/archive/refs/heads/main.zip)
-
-或前往 [GitHub 倉庫頁面](https://github.com/eric25382772/endfield-price-tracker) → 點右上綠色 **Code** 按鈕 → **Download ZIP**
-
-下載後解壓縮到任意資料夾，之後所有操作都在該資料夾裡進行。
-
-#### B2. 安裝 Python（非常重要！）
-
-> 如果電腦已裝過 Python 3.10 以上版本，可跳過此步驟。先打開 PowerShell 或 CMD，輸入 `python --version` 驗證。
-
-1. 前往 Python 官網下載頁：https://www.python.org/downloads/
-2. 點擊頁面上方綠色大按鈕下載最新穩定版（3.10 以上即可）
-3. 執行下載的安裝程式，**務必勾選最下方的「Add Python to PATH」**
-   - 這個選項沒勾，之後 `pip` 指令會找不到（如下圖錯誤訊息）
-4. 按「Install Now」完成安裝
-5. **驗證**：重新開一個 PowerShell 或 CMD 視窗（新開才會讀到剛裝的 Python），輸入：
-   ```
-   python --version
-   ```
-   有顯示版本號（例如 `Python 3.12.x`）就代表安裝成功。
-
-> **常見錯誤**：如果顯示「無法辨識 'python' 詞彙」或「不是內部或外部命令」，就是安裝時漏勾「Add Python to PATH」。
->
-> **解決方式**：重新執行 Python 安裝程式 → 選 **Modify** → 下一頁勾選 `Add Python to environment variables` → 儲存。或者直接移除後重裝，記得勾選 PATH 那格。
-
-#### B3. 一鍵安裝套件
-
-打開專案資料夾（裡面會看到 `install.bat`、`scanner.py` 等檔案），**雙擊 `install.bat`** 即可。
-
-腳本會自動：
-1. 檢查 Python 版本
-2. 安裝所有 Python 套件（`pip install -r requirements.txt`）
-3. 預先下載 OCR 中文模型（約 300-500 MB，只需一次）
-
-整個過程約需 5-15 分鐘（視網路速度），中間 OCR 模型下載階段畫面可能停住沒動，**這是正常的，不要關掉視窗**。看到「[OK] 安裝完成！」字樣就成功了。
-
-> **需要系統管理員權限嗎？** 不用。雙擊一般視窗即可（管理員權限只有啟動掃描器時才需要）。
->
-> **手動安裝**（不用 install.bat 的話）：在專案資料夾按 Shift + 右鍵 → 開啟 PowerShell → 輸入 `pip install -r requirements.txt`。
-
-#### B4. 啟動
-
-**只需啟動掃描器**，它會自動開啟網頁伺服器。
-
-方法一（推薦）：右鍵點擊 `start_scanner.bat` → **以系統管理員身分執行**
-
-方法二：手動開啟系統管理員 PowerShell，執行：
-```powershell
-cd 專案路徑
-python scanner.py
-```
-
-啟動後：
-- 掃描器會自動啟動 Flask 網頁伺服器（另一個視窗）
-- 瀏覽器前往 **http://127.0.0.1:5000** 即可查看
-
-> 掃描器需要管理員權限才能監聽全域快捷鍵（F2 / F3 / F4）。
-
----
-
-### 方案 C（開發者）：git clone
-
-```bash
-git clone https://github.com/eric25382772/endfield-price-tracker.git
-cd endfield-price-tracker
-pip install -r requirements.txt
-python scanner.py
-```
-
-開發模式下，資料庫與好友參考圖會寫在專案資料夾本身（`data/prices.db`、`data/item_images/friend/`）。安裝版會自動改用 `%LOCALAPPDATA%\EndfieldTracker\`。
+若 Windows SmartScreen 跳警告，點「其他資訊 → 仍要執行」。
 
 ## 使用方式
 
@@ -151,52 +50,25 @@ python scanner.py
 
 > 重要：**一定要先按 F2 掃描自己市場**，系統才知道你在看哪個區域，F3 才能正確辨識。
 
-### 網頁功能
+## 版本更新紀錄
 
-| 頁面 | 網址 | 說明 |
-|------|------|------|
-| 利潤比對 | http://127.0.0.1:5000/compare | 比對自己與好友的價格差異，找出最賺的物品（首頁 `/` 會自動導向） |
-
-## 版本更新紀錄 (Changelog)
-
-- **v1.11** — ✅ 目前版本 — Inno Setup 安裝精靈 `EndfieldTracker_Setup.exe`：Python 自動下載安裝、可寫資料移到 `%LOCALAPPDATA%\EndfieldTracker\`、修正 install.bat OCR 模型語系錯誤
+- **v1.11** — Inno Setup 安裝精靈：Python 自動下載安裝、可寫資料移到 `%LOCALAPPDATA%\EndfieldTracker\`、修正 install.bat OCR 模型語系錯誤
 - **v1.10** — `install.bat` 一鍵安裝腳本：自動檢查 Python、裝套件、預先下載 OCR 模型
 - **v1.9** — 利潤比對改版：移除手動輸入卡片，價格欄位直接點擊編輯
 - **v1.8** — 精簡：移除未使用的價格表與截圖上傳頁，首頁直接導向利潤比對
-- **v1.7** — 最佳單項利潤 + 剩餘配額顯示（含多次 UI 微調）
+- **v1.7** — 最佳單項利潤 + 剩餘配額顯示
 - **v1.6** — 囤貨追蹤：持有區自動偵測、利潤門檻建議、囤貨管理
 - **v1.5** — F2 OCR 文字優先、持有區過濾、好友列表雜訊過濾
 - **v1.4** — 好友價格辨識優化：佇列截圖、區域鎖定、專用參考圖
 - **v1.3** — 好友價格畫面辨識（ORB 特徵 + 色彩比對）
 - **v1.2** — 好友利潤比對、圖片辨識物品、背景掃描器
 - **v1.1** — 支援剪貼簿貼上截圖、改用 EasyOCR 引擎
-- **v1.0** — 初版：終末地彈性物資價格追蹤器
+- **v1.0** — 初版
 
 ## 注意事項
 
 - **首次啟動較慢**：OCR 引擎首次載入需要下載語言模型，之後會快取在本機
-- **只支援 Windows**：掃描器使用 Win32 API 擷取遊戲視窗，暫不支援其他作業系統
-- **需要管理員權限**：`keyboard` 套件監聽全域快捷鍵需要管理員權限
+- **只支援 Windows**：掃描器使用 Win32 API 擷取遊戲視窗
+- **需要管理員權限**：監聽全域快捷鍵 F2 / F3 需要管理員權限
 - **遊戲要在前景**：按 F2 / F3 時，遊戲視窗必須在最前面，否則會截到其他畫面
 - **每日重置時間**：遊戲日期以凌晨 4:00 為分界，4:00 前的操作算前一天
-
-## 專案結構
-
-```
-├── app.py              # Flask 網頁伺服器
-├── scanner.py          # 背景掃描器（快捷鍵 + OCR）
-├── config.py           # 設定檔
-├── install.bat         # 一鍵安裝腳本（雙擊即可）
-├── start_scanner.bat   # 掃描器啟動捷徑
-├── requirements.txt    # Python 套件依賴
-├── data/
-│   ├── items.py        # 物品資料（17 項物品）
-│   ├── models.py       # 資料庫結構
-│   ├── repository.py   # 資料庫操作
-│   └── item_images/    # 物品參考圖片
-├── ocr/
-│   ├── engine.py       # EasyOCR 引擎
-│   ├── parser.py       # OCR 文字解析
-│   └── image_matcher.py # 物品圖片比對
-└── templates/          # 網頁模板
-```
