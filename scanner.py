@@ -597,7 +597,19 @@ def main():
     keyboard.on_press_key('f2', lambda _: scan_my_prices())
     keyboard.on_press_key('f3', lambda _: scan_friend_prices())
 
-    keyboard.wait('esc')
+    while True:
+        keyboard.wait('esc')
+        MB_YESNO = 0x4
+        MB_ICONQUESTION = 0x20
+        MB_TOPMOST = 0x40000
+        IDYES = 6
+        result = ctypes.windll.user32.MessageBoxW(
+            0, "確定要關閉終末地追蹤器嗎？", "終末地追蹤器",
+            MB_YESNO | MB_ICONQUESTION | MB_TOPMOST,
+        )
+        if result == IDYES:
+            break
+        print("  取消關閉，繼續等待快捷鍵...")
     print("\n程式結束。")
 
 
