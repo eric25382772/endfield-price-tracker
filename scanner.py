@@ -2,7 +2,7 @@
 背景掃描程式 - 快捷鍵截圖 + OCR 自動辨識價格
 F2: 掃描自己的市場價格（自動截取遊戲視窗）
 F3: 掃描好友的市場價格
-ESC: 結束程式
+Ctrl+Shift+Q: 結束程式
 
 辨識方式：圖片比對確認物品 + OCR 讀取價格
 """
@@ -565,7 +565,7 @@ def main():
     print()
     print("  F2  = 掃描自己的市場價格")
     print("  F3  = 掃描好友的市場價格")
-    print("  ESC = 結束程式")
+    print("  Ctrl+Shift+Q = 結束程式")
     print()
     print("  * 區域自動偵測（不需手動切換）")
     print("  * 請確保遊戲視窗在最前面再按快捷鍵")
@@ -598,7 +598,7 @@ def main():
     keyboard.on_press_key('f3', lambda _: scan_friend_prices())
 
     while True:
-        keyboard.wait('esc')
+        keyboard.wait('ctrl+shift+q')
         MB_YESNO = 0x4
         MB_ICONQUESTION = 0x20
         MB_TOPMOST = 0x40000
