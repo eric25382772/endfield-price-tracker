@@ -3,7 +3,7 @@
 根據遊戲實際畫面佈局校正。
 
 谷地: 7+5 佈局 (第一行7個, 第二行5個)
-武陵: 1行5個, 遊戲畫面順序跟 items.py 不同
+武陵: v2.0 起 1行7個 (原 5 個 + 息壤18 + 清波19), 遊戲畫面順序每日隨機
 """
 import cv2
 import os
@@ -19,10 +19,10 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), '..', 'static', 'images', '
 # 遊戲畫面順序 → item_id 對應
 # ========================================
 
-# 武陵：遊戲畫面從左到右的順序 → item_id
-# item_id 13-17 (database order: 武俠13, 冬蟲14, 武陵凍梨15, 岳研16, 天師龍17)
-# 遊戲畫面順序: 武俠, 武陵凍梨, 冬蟲夏筍, 天師龍泡泡, 岳研避瘴茶
-WULING_SCREEN_ORDER = [13, 15, 14, 17, 16]
+# 武陵：遊戲畫面從左到右的順序 → item_id（每日隨機，跑工具前依當天截圖更新）
+# item_id 13-19 (database: 武俠13, 冬蟲14, 武陵凍梨15, 岳研16, 天師龍17, 息壤18, 清波19)
+# 2026-04-19 截圖順序: 岳研, 武俠, 息壤, 武陵凍梨, 清波, 冬蟲, 天師龍
+WULING_SCREEN_ORDER = [16, 13, 18, 15, 19, 14, 17]
 
 # 四號谷地：遊戲畫面從左到右、上到下
 # item_id 1-12, 遊戲順序 = 資料庫順序
@@ -45,7 +45,7 @@ def save_debug_grid(img, cards, labels, output_name):
 
 
 def extract_wuling(screenshot_path):
-    """Extract 5 Wuling item images."""
+    """Extract 7 Wuling item images (v2.0 起為 7 格佈局)."""
     img = cv2.imread(screenshot_path)
     if img is None:
         print(f"Cannot read {screenshot_path}")
@@ -54,9 +54,9 @@ def extract_wuling(screenshot_path):
     print(f"Wuling: {w}x{h}")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # 5 items, one row
-    card_x_starts = [143, 447, 751, 1055, 1359]
-    card_width = 282
+    # 7 items, one row (沿用谷地 Row1 的 x 間距，y 依武陵單行位置)
+    card_x_starts = [143, 447, 751, 1055, 1359, 1663, 1967]
+    card_width = 270
     y_top, y_bottom = 680, 920
 
     cards = []

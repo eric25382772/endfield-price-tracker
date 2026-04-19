@@ -38,12 +38,12 @@ _ref_images = {}
 
 
 def load_reference_images():
-    """載入所有參考圖片 (item_1.png ~ item_17.png)"""
+    """載入所有參考圖片 (item_1.png ~ item_19.png)"""
     global _ref_images
     if _ref_images:
         return _ref_images
 
-    for i in range(1, 18):
+    for i in range(1, 20):
         path = os.path.join(REF_DIR, f'item_{i}.png')
         if os.path.exists(path):
             img = cv2.imread(path)
@@ -172,7 +172,7 @@ def identify_items_by_image(screenshot_path, region):
     if region == 'valley_iv':
         region_ids = list(range(1, 13))  # item 1-12
     else:
-        region_ids = list(range(13, 18))  # item 13-17
+        region_ids = list(range(13, 20))  # item 13-19
 
     results = []
     used_ids = set()
@@ -227,7 +227,7 @@ def load_friend_reference_images():
         os.makedirs(FRIEND_REF_DIR, exist_ok=True)
         return _friend_ref_images
 
-    for i in range(1, 18):
+    for i in range(1, 20):
         path = os.path.join(FRIEND_REF_DIR, f'item_{i}.png')
         if os.path.exists(path):
             img = cv2.imread(path)
@@ -399,11 +399,11 @@ def identify_friend_item(screenshot_path, region_hint=None):
     if region_hint == 'valley_iv':
         region_ids = list(range(1, 13))
     elif region_hint == 'wuling':
-        region_ids = list(range(13, 18))
+        region_ids = list(range(13, 20))
 
     # 優先用好友參考圖 (同類型比對，準確度高)
     friend_refs = load_friend_reference_images()
-    available_friend = [i for i in (region_ids or range(1, 18)) if i in friend_refs]
+    available_friend = [i for i in (region_ids or range(1, 20)) if i in friend_refs]
 
     if len(available_friend) >= 3:
         print(f"  使用好友參考圖比對 ({len(available_friend)} 張)")
@@ -424,7 +424,7 @@ def identify_friend_item(screenshot_path, region_hint=None):
     if not region and item_id:
         if 1 <= item_id <= 12:
             region = 'valley_iv'
-        elif 13 <= item_id <= 17:
+        elif 13 <= item_id <= 19:
             region = 'wuling'
 
     print(f"  好友畫面物品辨識: item_{item_id} (分數: {score:.3f})")

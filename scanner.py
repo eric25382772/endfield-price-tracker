@@ -414,6 +414,9 @@ def parse_friend_list(ocr_results, img_width=2560):
 
     # 只讀取右側好友列表區域，排除左側物品圖的 OCR 雜訊
     x_min = img_width * 0.3  # 好友列表在畫面右側 70%
+    # 價格欄在中間；右邊「對比本地區 / 對於持有」百分比欄會被誤讀為 4 位數
+    # （例：▲51.1% → 5110），所以價格只抓 x < 0.75*width 的區塊
+    price_x_max = img_width * 0.75
 
     for block in ocr_results:
         text = block['text'].strip()
@@ -428,7 +431,9 @@ def parse_friend_list(ocr_results, img_width=2560):
                 'center_x': block['center_x'],
             })
             continue
-        # 價格: 4 位數字 (1000~6000)，排除百分比數字 (如 481.9% → 481)
+        # 價格: 4 位數字 (1000~6000)，只在價格欄 x 範圍內抓
+        if block['center_x'] >= price_x_max:
+            continue
         match = re.search(r'(\d{4})', text)
         if match:
             val = int(match.group(1))
@@ -440,27 +445,37 @@ def parse_friend_list(ocr_results, img_width=2560):
                 })
 
     # 按 y 座標配對: 每個名字找最近的價格
+    # 好友列表一定由高到低排序，遇到「比前一筆更高」的價格視為 OCR 雜訊（如 ▲51.1% → 5110）
     results = []
     used = set()
+    prev_price = None
     for nb in sorted(name_blocks, key=lambda x: x['center_y']):
-        best_price = None
-        best_dist = float('inf')
-        best_idx = -1
+        # 依 y 由近到遠排序候選，選第一個符合「<= 前一筆」的價格
+        candidates = []
         for i, pb in enumerate(price_blocks):
             if i in used:
                 continue
             dy = abs(pb['center_y'] - nb['center_y'])
-            if dy < best_dist and dy < 80:
-                best_dist = dy
-                best_price = pb
-                best_idx = i
-        if best_price is not None:
-            used.add(best_idx)
+            if dy < 80:
+                candidates.append((dy, i, pb))
+        candidates.sort(key=lambda x: x[0])
+
+        chosen = None
+        chosen_idx = -1
+        for dy, i, pb in candidates:
+            if prev_price is None or pb['price'] <= prev_price:
+                chosen = pb
+                chosen_idx = i
+                break
+
+        if chosen is not None:
+            used.add(chosen_idx)
+            prev_price = chosen['price']
             results.append({
                 'friend_name': nb['name'],
-                'price': best_price['price'],
+                'price': chosen['price'],
             })
-            print(f"    {nb['name']}: {best_price['price']}")
+            print(f"    {nb['name']}: {chosen['price']}")
         else:
             print(f"    {nb['name']}: (未找到價格)")
 
