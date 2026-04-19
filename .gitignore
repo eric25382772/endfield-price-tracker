@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 *.pyo
 data/prices.db
+data/prices.db.bak-*
 uploads/
 *.egg-info/
 dist/
