@@ -287,6 +287,69 @@ def mark_stockpile_sold(stockpile_id):
     conn.close()
 
 
+def snapshot_date(game_date):
+    """匯出指定日期的所有資料（prices / friend_prices / quotas / stockpile）為 dict。"""
+    conn = get_db()
+    prices = [dict(r) for r in conn.execute(
+        "SELECT item_id, market_price, source FROM prices WHERE game_date = ?",
+        (game_date,)).fetchall()]
+    friend_prices = [dict(r) for r in conn.execute(
+        "SELECT item_id, friend_name, market_price, source FROM friend_prices WHERE game_date = ?",
+        (game_date,)).fetchall()]
+    quotas = [dict(r) for r in conn.execute(
+        "SELECT region, remaining, max_quota FROM quotas WHERE game_date = ?",
+        (game_date,)).fetchall()]
+    stockpile = [dict(r) for r in conn.execute(
+        "SELECT item_id, buy_price, region, sold FROM stockpile WHERE game_date_bought = ?",
+        (game_date,)).fetchall()]
+    conn.close()
+    return {
+        'game_date': game_date,
+        'prices': prices,
+        'friend_prices': friend_prices,
+        'quotas': quotas,
+        'stockpile': stockpile,
+    }
+
+
+def delete_date_data(game_date):
+    """刪除指定日期的所有掃描/好友/配額/囤貨資料。"""
+    conn = get_db()
+    conn.execute("DELETE FROM prices WHERE game_date = ?", (game_date,))
+    conn.execute("DELETE FROM friend_prices WHERE game_date = ?", (game_date,))
+    conn.execute("DELETE FROM quotas WHERE game_date = ?", (game_date,))
+    conn.execute("DELETE FROM stockpile WHERE game_date_bought = ?", (game_date,))
+    conn.commit()
+    conn.close()
+
+
+def restore_snapshot(snapshot):
+    """把 snapshot_date 輸出的 dict 寫回資料庫。"""
+    game_date = snapshot['game_date']
+    for p in snapshot.get('prices', []):
+        upsert_price(p['item_id'], p['market_price'],
+                     game_date=game_date, source=p.get('source', 'scanner'))
+    for fp in snapshot.get('friend_prices', []):
+        upsert_friend_price(fp['item_id'], fp['market_price'],
+                            friend_name=fp.get('friend_name', '好友'),
+                            game_date=game_date, source=fp.get('source', 'ocr'))
+    for q in snapshot.get('quotas', []):
+        upsert_quota(q['region'], q['remaining'], q['max_quota'], game_date=game_date)
+    conn = get_db()
+    for s in snapshot.get('stockpile', []):
+        conn.execute("""
+            INSERT INTO stockpile (item_id, buy_price, quantity, game_date_bought, region, sold)
+            VALUES (?, ?, 1, ?, ?, ?)
+            ON CONFLICT(item_id, game_date_bought)
+            DO UPDATE SET buy_price = excluded.buy_price,
+                          region = excluded.region,
+                          sold = excluded.sold,
+                          recorded_at = CURRENT_TIMESTAMP
+        """, (s['item_id'], s['buy_price'], game_date, s.get('region'), s.get('sold', 0)))
+    conn.commit()
+    conn.close()
+
+
 def get_available_dates(limit=30):
     """Get list of dates that have price data."""
     conn = get_db()

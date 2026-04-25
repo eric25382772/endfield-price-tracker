@@ -1,6 +1,6 @@
 # 終末地 彈性物資價格追蹤器
 
-> 目前 GitHub 上架版本：**v2.0**
+> 目前 GitHub 上架版本：**v2.1**
 
 明日方舟：終末地 (Arknights: Endfield) 的彈性物資市場價格追蹤工具。
 自動辨識遊戲畫面中的物品與價格，比對好友市場找出最佳利潤。
@@ -53,6 +53,7 @@
 
 ## 版本更新紀錄
 
+- **v2.1** — Scanner 啟動自動開瀏覽器；網頁即時顯示辨識狀態（spinner + 好友欄 placeholder + 右下角 toast）；F2/F3 順序強制（好友比對等自己市場成功才處理）；F3 排隊時按 F2 跳出換區確認 modal；重置/回復按鈕（備份至 `data/reset_backup_<date>.json`）
 - **v2.0** — 遊戲 4/17 改版更新適配：武陵新增 2 貨物（息壤淨水濾心、清波筏），武陵購買配額調整為每日 +125、上限 250
 - **v1.11** — Inno Setup 安裝精靈：Python 自動下載安裝、可寫資料移到 `%LOCALAPPDATA%\EndfieldTracker\`、修正 install.bat OCR 模型語系錯誤
 - **v1.10** — `install.bat` 一鍵安裝腳本：自動檢查 Python、裝套件、預先下載 OCR 模型

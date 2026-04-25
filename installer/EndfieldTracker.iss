@@ -4,7 +4,7 @@
 
 #define MyAppName "終末地彈性物資價格追蹤器"
 #define MyAppShortName "終末地追蹤器"
-#define MyAppVersion "2.0"
+#define MyAppVersion "2.1"
 #define MyAppPublisher "eric25382772"
 #define MyAppURL "https://github.com/eric25382772/endfield-price-tracker"
 #define MyAppExeName "start_scanner.bat"

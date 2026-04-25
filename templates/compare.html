@@ -3,8 +3,14 @@
 {% macro item_image(item) %}
 <img src="/static/images/items/item_{{ item.item_id }}.png" alt="{{ item.name_cn }}" style="width:50px;height:auto;vertical-align:middle;margin-right:8px;border-radius:4px;">
 {% endmacro %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h2>利潤比對</h2>
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+    <div class="d-flex align-items-center gap-2">
+        <h2 class="mb-0">利潤比對</h2>
+        <button type="button" class="btn btn-sm btn-outline-danger ms-2" data-bs-toggle="modal" data-bs-target="#resetModal">重置</button>
+        {% if has_backup %}
+        <button type="button" class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#restoreModal">回復</button>
+        {% endif %}
+    </div>
     <div class="d-flex align-items-center gap-2">
         <label for="dateSelect" class="form-label mb-0">遊戲日期：</label>
         <select id="dateSelect" class="form-select form-select-sm" style="width: auto;" onchange="window.location.href='/compare?date=' + this.value">
@@ -21,16 +27,74 @@
 </div>
 
 <div class="alert alert-info py-2 mb-3">
-    <strong>使用方式：</strong>開啟 <code>scanner.py</code> 後，在遊戲市場畫面按 <kbd>F2</kbd> 掃描自己價格，按 <kbd>F3</kbd> 掃描好友價格。也可直接點擊價格欄位編輯。
+    <strong>使用方式：</strong>開啟網頁後，在遊戲市場畫面先按 <kbd>F2</kbd> 辨識地區後，再按 <kbd>F3</kbd> 掃描好友價格。也可直接點擊價格欄位編輯。
 </div>
 
+<div class="modal fade" id="resetModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-danger">確定要重置今天的畫面資料？</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>會將 <strong>{{ selected_date or current_date }}</strong> 已辨識到的：</p>
+                <ul class="mb-2">
+                    <li>我的價格</li>
+                    <li>好友價格</li>
+                    <li>剩餘配額</li>
+                    <li>囤貨持有（當天買入的）</li>
+                </ul>
+                <p class="mb-0 text-muted small">資料會備份到 <code>data/reset_backup_{{ selected_date or current_date }}.json</code>，可按「回復」還原。</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <form method="POST" action="/reset" class="d-inline">
+                    <input type="hidden" name="game_date" value="{{ selected_date or current_date }}">
+                    <button type="submit" class="btn btn-danger">確定重置</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if has_backup %}
+<div class="modal fade" id="restoreModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title text-success">確定要回復先前的資料？</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>會從備份檔還原 <strong>{{ selected_date or current_date }}</strong> 重置前的資料。</p>
+                <p class="mb-0 text-warning small">目前重置後新掃到的資料會被覆蓋（以備份值為準）。</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <form method="POST" action="/restore" class="d-inline">
+                    <input type="hidden" name="game_date" value="{{ selected_date or current_date }}">
+                    <button type="submit" class="btn btn-success">確定回復</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% set valley_has_my = valley_comparison|selectattr('my_price')|list|length > 0 %}
+{% set wuling_has_my = wuling_comparison|selectattr('my_price')|list|length > 0 %}
 {# ===== 四號谷地比對 ===== #}
-<div class="region-section mb-4">
+<div class="region-section mb-4" data-region="valley_iv">
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <h4 class="region-title mb-0 d-flex align-items-center gap-2">
             <span class="region-badge valley">四號谷地</span>
             <span class="badge bg-warning text-dark fs-6">
                 剩餘 {% if valley_quota %}{{ valley_quota.remaining }}{% else %}?{% endif %} / {{ region_quota.valley_iv.max }}
+            </span>
+            <span class="scan-indicator d-none" data-region="valley_iv" data-empty="{{ 'true' if not valley_has_my else 'false' }}">
+                <span class="spinner-border spinner-border-sm text-warning" role="status"></span>
+                <small class="text-warning ms-1 scan-indicator-text">辨識中…</small>
             </span>
         </h4>
         {% if valley_best %}
@@ -38,6 +102,11 @@
             最佳：{{ valley_best.name_cn }} +{{ valley_best.profit }}
         </span>
         {% endif %}
+    </div>
+    <div class="position-relative">
+    <div class="scanning-overlay">
+        <div class="spinner-border text-warning" role="status"></div>
+        <div class="mt-2 fw-bold">辨識中…</div>
     </div>
     <div class="table-responsive">
         <table class="table table-hover table-bordered align-middle mb-0">
@@ -111,15 +180,20 @@
             </tbody>
         </table>
     </div>
+    </div>
 </div>
 
 {# ===== 武陵比對 ===== #}
-<div class="region-section mb-4">
+<div class="region-section mb-4" data-region="wuling">
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <h4 class="region-title mb-0 d-flex align-items-center gap-2">
             <span class="region-badge wuling">武陵</span>
             <span class="badge bg-warning text-dark fs-6">
                 剩餘 {% if wuling_quota %}{{ wuling_quota.remaining }}{% else %}?{% endif %} / {{ region_quota.wuling.max }}
+            </span>
+            <span class="scan-indicator d-none" data-region="wuling" data-empty="{{ 'true' if not wuling_has_my else 'false' }}">
+                <span class="spinner-border spinner-border-sm text-warning" role="status"></span>
+                <small class="text-warning ms-1 scan-indicator-text">辨識中…</small>
             </span>
         </h4>
         {% if wuling_best %}
@@ -127,6 +201,11 @@
             最佳：{{ wuling_best.name_cn }} +{{ wuling_best.profit }}
         </span>
         {% endif %}
+    </div>
+    <div class="position-relative">
+    <div class="scanning-overlay">
+        <div class="spinner-border text-warning" role="status"></div>
+        <div class="mt-2 fw-bold">辨識中…</div>
     </div>
     <div class="table-responsive">
         <table class="table table-hover table-bordered align-middle mb-0">
@@ -199,6 +278,7 @@
                 {% endfor %}
             </tbody>
         </table>
+    </div>
     </div>
 </div>
 

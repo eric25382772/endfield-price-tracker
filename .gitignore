@@ -3,6 +3,10 @@ __pycache__/
 *.pyo
 data/prices.db
 data/prices.db.bak-*
+data/scan_status.json
+data/heartbeat.json
+data/f2_decision.json
+data/reset_backup_*.json
 uploads/
 *.egg-info/
 dist/

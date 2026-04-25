@@ -10,11 +10,15 @@ import os
 import re
 import sys
 import time
+import json
 import ctypes
 import ctypes.wintypes
 import tempfile
 import subprocess
 import threading
+import webbrowser
+from datetime import datetime
+from pathlib import Path
 from queue import Queue
 import keyboard
 import mss
@@ -27,7 +31,7 @@ from data.repository import (
     get_all_items, upsert_price, upsert_friend_price,
     delete_friend_prices_for_item, upsert_stockpile, upsert_quota
 )
-from data.items import REGION_QUOTA
+from data.items import REGION_QUOTA, get_region_quota
 from ocr.engine import recognize
 from ocr.parser import parse_ocr_results
 from ocr.image_matcher import identify_items_by_image, get_card_positions, identify_friend_item
@@ -38,6 +42,82 @@ flask_process = None
 f2_queue = Queue()
 f3_queue = Queue()
 last_f2_region = None  # F2 掃完後記錄區域，F3 只在該區域內比對
+my_scan_active = threading.Event()  # F2 辨識中，F3 需等待避免畫面混淆
+f2_ready = threading.Event()  # F2 已成功完成過至少一次且目前未在跑，F3 才能處理
+
+SCAN_STATUS_FILE = Path(__file__).parent / 'data' / 'scan_status.json'
+HEARTBEAT_FILE = Path(__file__).parent / 'data' / 'heartbeat.json'
+_shutdown_event = threading.Event()
+_completed_count = 0  # 每完成一張截圖處理 +1，網頁偵測此計數變化即 reload
+
+
+_last_error = ''  # F2 失敗訊息；成功或其他階段清空
+
+F2_DECISION_FILE = Path(__file__).parent / 'data' / 'f2_decision.json'
+f2_pending_lock = threading.Event()  # set 表示已有 F2 在等網頁 modal 確認
+_drop_in_flight_f3 = threading.Event()  # 換區確認後通知 worker_f3 丟棄當前已 get 的截圖
+
+
+def set_scan_status(phase, region=None, error=None):
+    """寫入掃描狀態供網頁端輪詢（scanner 與 Flask 是不同行程，透過檔案交換）。
+    error=None 表示不改變既有錯誤；空字串則清空。"""
+    global _last_error
+    if error is not None:
+        _last_error = error
+    try:
+        SCAN_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        SCAN_STATUS_FILE.write_text(json.dumps({
+            'phase': phase,
+            'region': region,
+            'completed': _completed_count,
+            'error': _last_error,
+            'updated_at': datetime.now().isoformat(timespec='seconds'),
+        }), encoding='utf-8')
+    except Exception:
+        pass
+
+
+def update_scan_error(error):
+    """只更新 error 欄位，保留現有 phase / region（給 toast 警告用）。"""
+    global _last_error
+    _last_error = error
+    try:
+        if SCAN_STATUS_FILE.exists():
+            data = json.loads(SCAN_STATUS_FILE.read_text(encoding='utf-8'))
+        else:
+            data = {'phase': 'idle', 'region': None, 'completed': _completed_count}
+        data['error'] = error
+        data['updated_at'] = datetime.now().isoformat(timespec='seconds')
+        SCAN_STATUS_FILE.write_text(json.dumps(data), encoding='utf-8')
+    except Exception:
+        pass
+
+
+def _patch_status_field(key, value):
+    """更新 scan_status.json 的單一欄位，保留其他欄位。value=None 則移除該欄位。"""
+    try:
+        if SCAN_STATUS_FILE.exists():
+            data = json.loads(SCAN_STATUS_FILE.read_text(encoding='utf-8'))
+        else:
+            data = {'phase': 'idle', 'region': None, 'completed': _completed_count, 'error': _last_error}
+        if value is None:
+            data.pop(key, None)
+        else:
+            data[key] = value
+        data['updated_at'] = datetime.now().isoformat(timespec='seconds')
+        SCAN_STATUS_FILE.write_text(json.dumps(data), encoding='utf-8')
+    except Exception:
+        pass
+
+
+def set_pending_f2(count):
+    """寫 pending_f2 欄位 → 網頁 modal 會自動彈出。"""
+    _patch_status_field('pending_f2', {'count': count})
+
+
+def clear_pending_f2():
+    """移除 pending_f2 欄位 → 網頁 modal 自動關閉。"""
+    _patch_status_field('pending_f2', None)
 
 
 def ensure_flask():
@@ -181,41 +261,70 @@ def match_prices_to_cards(card_results, price_blocks, img_height):
     return card_results
 
 
-def parse_remaining_quota(ocr_results, region, market_y):
+def _normalize_digits(text):
+    """把 OCR 常見的字母誤判修回數字（僅用於純數字欄位）：O→0、l/I→1、S→5、B→8。"""
+    return (text.replace('O', '0').replace('o', '0').replace('D', '0').replace('Q', '0')
+                .replace('l', '1').replace('I', '1')
+                .replace('S', '5').replace('s', '5')
+                .replace('B', '8'))
+
+
+def parse_remaining_quota(ocr_results, region, market_y, game_date=None):
     """
     從 OCR 結果找出剩餘配額數字。
-    遊戲市場畫面頂端會顯示類似「65/130」或「320/960」的配額數字。
+    遊戲市場畫面頂端會顯示類似「65/130」或「0/250」的配額數字。
     只看市場標題上方區域（market_y 之上），避免被價格數字干擾。
+    max_quota 依遊戲日期決定（武陵 4/17 改版前為 130，之後為 250）。
     """
-    if not region or region not in REGION_QUOTA:
+    quota_cfg = get_region_quota(region, game_date) if region else None
+    if not quota_cfg:
         return None
-    max_quota = REGION_QUOTA[region]['max']
-    daily = REGION_QUOTA[region]['daily']
+    max_quota = quota_cfg['max']
+    daily = quota_cfg['daily']
 
     search_area = [b for b in ocr_results if market_y <= 0 or b['center_y'] < market_y]
-
     pattern_slash = re.compile(r'(\d{1,4})\s*[/／]\s*(\d{2,4})')
-    best = None
-    for block in search_area:
-        text = block['text']
+
+    def _match(text):
         for m in pattern_slash.finditer(text):
             remaining, total = int(m.group(1)), int(m.group(2))
             if total == max_quota and 0 <= remaining <= max_quota:
-                if best is None or block['center_y'] < best['y']:
-                    best = {'remaining': remaining, 'max': total, 'y': block['center_y']}
+                return remaining, total
+        return None
 
+    # 1) 單 block 直接命中（含字母誤判修正）
+    best = None
+    for block in search_area:
+        for text in (block['text'], _normalize_digits(block['text'])):
+            hit = _match(text)
+            if hit:
+                if best is None or block['center_y'] < best['y']:
+                    best = {'remaining': hit[0], 'max': hit[1], 'y': block['center_y']}
+                break
     if best:
         print(f"  剩餘配額: {best['remaining']}/{best['max']}")
         return {'remaining': best['remaining'], 'max': best['max']}
 
-    pattern_num = re.compile(r'(?<!\d)(\d{1,4})(?!\d)')
-    for block in search_area:
-        for m in pattern_num.finditer(block['text']):
-            n = int(m.group(1))
-            if 0 <= n <= max_quota and (n % daily == 0 or n == max_quota):
-                print(f"  剩餘配額 (fallback): {n}/{max_quota}")
-                return {'remaining': n, 'max': max_quota}
+    # 2) 跨 block 重組：找含關鍵字的 block，取同 y 列所有 block 連成一整行再比對
+    keywords = ('剩餘', '可購買', '數量', '購買')
+    for anchor in search_area:
+        if not any(k in anchor['text'] for k in keywords):
+            continue
+        ay = anchor['center_y']
+        row_blocks = [b for b in search_area if abs(b['center_y'] - ay) < 50]
+        row_blocks.sort(key=lambda b: b['center_x'])
+        joined_raw = ''.join(b['text'] for b in row_blocks)
+        for text in (joined_raw, _normalize_digits(joined_raw)):
+            hit = _match(text)
+            if hit:
+                print(f"  剩餘配額 (跨 block): {hit[0]}/{hit[1]}")
+                return {'remaining': hit[0], 'max': hit[1]}
 
+    # 全部失敗：dump 搜尋區塊讓使用者回報
+    print(f"  剩餘配額：未辨識到 X/{max_quota} 格式，略過")
+    print(f"  [DEBUG] search_area 區塊（前 15 個）：")
+    for b in search_area[:15]:
+        print(f"    y={b['center_y']:.0f} x={b['center_x']:.0f}: {b['text']!r}")
     return None
 
 
@@ -272,7 +381,7 @@ def scan_with_image_match(filepath):
             print(f"    [囤貨] {h['item_name']} = {h['price']}")
 
     # 解析剩餘配額（市場文字上方）
-    quota = parse_remaining_quota(ocr_results, region, market_y)
+    quota = parse_remaining_quota(ocr_results, region, market_y, game_date=get_game_date())
 
     if market_y > 0:
         # 重新解析，只用市場區域內的 OCR 結果
@@ -338,9 +447,14 @@ def scan_with_image_match(filepath):
 
 def process_my_prices(filepath):
     """處理一張自己市場的截圖。"""
-    global last_f2_region
+    global last_f2_region, _completed_count
+    my_scan_active.set()
+    set_scan_status('scanning_self', None)
+    saved_count = 0
     try:
         parsed, region, holdings, quota = scan_with_image_match(filepath)
+        if region:
+            set_scan_status('scanning_self', region)
 
         if not parsed:
             print("  未辨識到任何物品或價格")
@@ -361,6 +475,7 @@ def process_my_prices(filepath):
                              game_date=game_date, source='scanner')
                 saved += 1
                 print(f"  >> {item['item_name']}: {item['price']}")
+        saved_count = saved
 
         # 儲存持有區囤貨
         stockpile_saved = 0
@@ -385,20 +500,103 @@ def process_my_prices(filepath):
         print(f"  錯誤: {e}")
         import traceback
         traceback.print_exc()
+    finally:
+        _completed_count += 1
+        my_scan_active.clear()
+        if saved_count > 0:
+            f2_ready.set()  # 通知 worker_f3 可以處理暫存的 F3 截圖了
+            if f3_queue.unfinished_tasks > 0:
+                # F3 在排隊，狀態交給 worker_f3 接手寫，避免 idle 閃爍
+                pass
+            else:
+                set_scan_status('idle', error='')
+        else:
+            # F2 沒存入任何價格：f2_ready 保持 clear，F3 繼續等下次 F2
+            set_scan_status('idle', error='自己市場掃描未辨識到任何價格，請重新按 F2')
+            print("  [!] 本次自己市場掃描未存入任何價格，好友比對將等待下次成功掃描")
 
 
-def scan_my_prices():
-    """F2: 立刻截圖，丟進佇列背景處理。"""
+def _do_f2_capture():
+    """實際執行 F2 截圖並入隊。給 keypress 與 decision thread 共用。"""
+    my_scan_active.set()
+    f2_ready.clear()
     print(f"\n{'='*50}")
     print(f"[F2] 掃描自己的市場")
     print(f"{'='*50}")
-
     try:
         filepath = capture_foreground_window()
         print(f"  截圖已儲存: {filepath}")
         f2_queue.put(filepath)
     except Exception as e:
         print(f"  截圖錯誤: {e}")
+        my_scan_active.clear()
+
+
+def _wait_f2_decision_thread():
+    """背景 thread：輪詢 f2_decision.json，依結果清 f3_queue + 執行 F2 或取消。"""
+    try:
+        F2_DECISION_FILE.parent.mkdir(parents=True, exist_ok=True)
+        # 清掉殘留檔避免吃到舊決定
+        if F2_DECISION_FILE.exists():
+            try: F2_DECISION_FILE.unlink()
+            except Exception: pass
+
+        timeout = 60.0
+        start = time.time()
+        while time.time() - start < timeout:
+            if F2_DECISION_FILE.exists():
+                try:
+                    data = json.loads(F2_DECISION_FILE.read_text(encoding='utf-8'))
+                except Exception:
+                    data = {}
+                try: F2_DECISION_FILE.unlink()
+                except Exception: pass
+                action = data.get('action')
+                if action == 'confirm':
+                    cleared_queue = 0
+                    while True:
+                        try:
+                            f3_queue.get_nowait()
+                            f3_queue.task_done()
+                            cleared_queue += 1
+                        except Exception:
+                            break
+                    # 通知 worker_f3 丟棄它已 get 但還沒處理的那張
+                    _drop_in_flight_f3.set()
+                    print(f"\n  [換區確認] 已清空待辦好友比對 {cleared_queue} 張，並會丟棄處理中的 1 張")
+                    clear_pending_f2()
+                    f2_pending_lock.clear()
+                    _do_f2_capture()
+                else:
+                    print(f"\n  [換區取消] 保留好友比對暫存")
+                    clear_pending_f2()
+                    f2_pending_lock.clear()
+                return
+            time.sleep(0.3)
+
+        # Timeout
+        print(f"\n  [換區逾時取消] 60 秒未決定，自動取消")
+        clear_pending_f2()
+        f2_pending_lock.clear()
+    except Exception as e:
+        print(f"  [換區 decision thread 錯誤] {e}")
+        clear_pending_f2()
+        f2_pending_lock.clear()
+
+
+def scan_my_prices():
+    """F2: 立刻截圖；若還有未完成的好友比對，改跳網頁確認窗讓使用者決定。"""
+    pending_f3 = f3_queue.unfinished_tasks
+    if pending_f3 > 0:
+        if f2_pending_lock.is_set():
+            print(f"\n  [掃描忽略] 已有換區確認窗等待中")
+            return
+        f2_pending_lock.set()
+        print(f"\n  [等待換區確認] 還有 {pending_f3} 張好友比對未處理，網頁確認窗已彈出")
+        set_pending_f2(pending_f3)
+        threading.Thread(target=_wait_f2_decision_thread, daemon=True).start()
+        return
+    _do_f2_capture()
 
 
 def parse_friend_list(ocr_results, img_width=2560):
@@ -484,12 +682,17 @@ def parse_friend_list(ocr_results, img_width=2560):
 
 def process_friend_prices(filepath):
     """處理一張好友價格的截圖。"""
+    global _completed_count
+    # 還沒辨識物品前不指定區域，避免 stale last_f2_region 在錯區域畫 placeholder
+    set_scan_status('scanning_friend', None)
     try:
         # Step 1: 圖片比對辨識左側大物品圖 (限定 F2 掃到的區域)
         region_hint = last_f2_region
         if region_hint:
             print(f"  限定比對區域: {REGIONS.get(region_hint, region_hint)}")
         item_id, score, region = identify_friend_item(filepath, region_hint=region_hint)
+        if region:
+            set_scan_status('scanning_friend', region)
         if not item_id:
             print("  無法辨識物品圖片")
             return
@@ -532,6 +735,13 @@ def process_friend_prices(filepath):
         print(f"  錯誤: {e}")
         import traceback
         traceback.print_exc()
+    finally:
+        _completed_count += 1
+        # 若 F3 佇列還有待處理的，保持 scanning_friend 狀態；否則回 idle
+        if f3_queue.unfinished_tasks > 1:
+            set_scan_status('scanning_friend', last_f2_region)
+        else:
+            set_scan_status('idle')
 
 
 def scan_friend_prices():
@@ -549,6 +759,49 @@ def scan_friend_prices():
 
 
 
+def watchdog_heartbeat(grace=30, timeout=15):
+    """網頁每 2 秒 POST /api/heartbeat 更新 heartbeat.json。
+    若超過 `timeout` 秒沒心跳（啟動 `grace` 秒後開始檢查），視為網頁已關閉，觸發退出。"""
+    # 清掉舊 heartbeat，避免用上次殘留值
+    try:
+        if HEARTBEAT_FILE.exists():
+            HEARTBEAT_FILE.unlink()
+    except Exception:
+        pass
+    time.sleep(grace)
+    while not _shutdown_event.is_set():
+        try:
+            if HEARTBEAT_FILE.exists():
+                age = time.time() - HEARTBEAT_FILE.stat().st_mtime
+                if age > timeout:
+                    print(f"\n網頁已關閉超過 {int(age)} 秒，自動結束掃描器...")
+                    _shutdown_event.set()
+                    return
+        except Exception:
+            pass
+        time.sleep(2)
+
+
+def quit_hotkey_listener():
+    """Ctrl+Shift+Q 熱鍵 → 跳確認視窗 → 設 shutdown event。"""
+    while not _shutdown_event.is_set():
+        keyboard.wait('ctrl+shift+q')
+        if _shutdown_event.is_set():
+            return
+        MB_YESNO = 0x4
+        MB_ICONQUESTION = 0x20
+        MB_TOPMOST = 0x40000
+        IDYES = 6
+        result = ctypes.windll.user32.MessageBoxW(
+            0, "確定要關閉終末地追蹤器嗎？", "終末地追蹤器",
+            MB_YESNO | MB_ICONQUESTION | MB_TOPMOST,
+        )
+        if result == IDYES:
+            _shutdown_event.set()
+            return
+        print("  取消關閉，繼續等待快捷鍵...")
+
+
 def worker_f2():
     """背景執行緒：依序處理 F2 佇列中的截圖。"""
     while True:
@@ -561,12 +814,43 @@ def worker_f2():
 
 
 def worker_f3():
-    """背景執行緒：依序處理 F3 佇列中的截圖。"""
+    """背景執行緒：依序處理好友比對佇列中的截圖。自己市場掃描必須成功完成過才會處理。"""
     while True:
+        # 換區確認窗開著時，不要拉新 item 出來處理
+        while f2_pending_lock.is_set():
+            time.sleep(0.3)
+
         filepath = f3_queue.get()
         if filepath is None:
             break
-        print(f"\n  [F3 處理中] {os.path.basename(filepath)}")
+        # 保險延遲：若兩個熱鍵幾乎同時按下，給對方 callback 機會 set 旗標
+        time.sleep(0.15)
+        if not f2_ready.is_set():
+            print(f"\n  [好友比對 暫存] {os.path.basename(filepath)} 等待 自己市場掃描 完成...")
+            # 自己市場掃描中：不寫狀態，讓它自己的進度顯示繼續呈現
+            # 從未掃描過自己市場：寫 banner 提示
+            if not my_scan_active.is_set() and last_f2_region is None:
+                set_scan_status('idle', error='好友比對截圖已暫存，請先按 F2 掃描自己的市場')
+                wrote_pending_error = True
+            else:
+                wrote_pending_error = False
+            f2_ready.wait()
+            print(f"  [好友比對 繼續] 自己市場掃描完成，開始處理")
+            if wrote_pending_error:
+                set_scan_status('idle', error='')
+
+        # 等任何換區確認窗結束（user 可能在 wait 期間按了新 F2）
+        while f2_pending_lock.is_set():
+            time.sleep(0.3)
+
+        # 換區確認後通知丟棄這張
+        if _drop_in_flight_f3.is_set():
+            _drop_in_flight_f3.clear()
+            print(f"\n  [好友比對 已捨棄] {os.path.basename(filepath)}（換區）")
+            f3_queue.task_done()
+            continue
+
+        print(f"\n  [好友比對 處理中] {os.path.basename(filepath)}")
         process_friend_prices(filepath)
         f3_queue.task_done()
 
@@ -592,6 +876,13 @@ def main():
 
     # 啟動 Flask
     ensure_flask()
+    set_scan_status('idle', error='')
+    # 等 Flask 起來再開瀏覽器（避免第一次連線失敗）
+    time.sleep(1.5)
+    try:
+        webbrowser.open('http://127.0.0.1:5000/compare')
+    except Exception:
+        pass
     print()
 
     # Pre-load OCR engine
@@ -612,20 +903,34 @@ def main():
     keyboard.on_press_key('f2', lambda _: scan_my_prices())
     keyboard.on_press_key('f3', lambda _: scan_friend_prices())
 
-    while True:
-        keyboard.wait('ctrl+shift+q')
-        MB_YESNO = 0x4
-        MB_ICONQUESTION = 0x20
-        MB_TOPMOST = 0x40000
-        IDYES = 6
-        result = ctypes.windll.user32.MessageBoxW(
-            0, "確定要關閉終末地追蹤器嗎？", "終末地追蹤器",
-            MB_YESNO | MB_ICONQUESTION | MB_TOPMOST,
-        )
-        if result == IDYES:
-            break
-        print("  取消關閉，繼續等待快捷鍵...")
+    # 熱鍵監聽：Ctrl+Shift+Q 觸發關閉
+    # （心跳自動關閉模式已移除，因瀏覽器對背景分頁 throttle 會造成誤判）
+    threading.Thread(target=quit_hotkey_listener, daemon=True).start()
+
+    _shutdown_event.wait()
+
+    # 清理：用 taskkill /F /T 殺整個 Flask 行程樹（debug mode 的 reloader 子行程也要殺）
+    if flask_process and flask_process.poll() is None:
+        try:
+            subprocess.run(
+                ['taskkill', '/F', '/T', '/PID', str(flask_process.pid)],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+        except Exception:
+            try:
+                flask_process.kill()
+            except Exception:
+                pass
     print("\n程式結束。")
+
+    # 關掉 scanner 自己的 console 視窗
+    try:
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
+    except Exception:
+        pass
 
 
 if __name__ == '__main__':

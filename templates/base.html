@@ -11,11 +11,37 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
             <a class="navbar-brand" href="/">終末地 彈性物資追蹤器</a>
-            <div class="navbar-nav ms-auto">
+            <div class="navbar-nav ms-auto align-items-center">
                 <a class="nav-link" href="/compare">利潤比對</a>
             </div>
         </div>
     </nav>
+    <div id="scan-error-banner" class="alert alert-danger text-center mb-0 rounded-0 d-none"></div>
+    <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1080;">
+        <div id="scan-error-toast" class="toast align-items-center text-bg-danger border-0" role="alert" data-bs-autohide="false">
+            <div class="d-flex">
+                <div class="toast-body" id="scan-error-toast-body"></div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+    </div>
+    <div class="modal fade" id="f2-confirm-modal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-warning">
+                    <h5 class="modal-title">換地區掃描？</h5>
+                </div>
+                <div class="modal-body">
+                    <p class="mb-2">目前還有 <strong id="f2-confirm-count">?</strong> 張<strong>好友比對</strong>截圖在排隊或處理中。</p>
+                    <p class="mb-0">按「<strong>丟棄並換區</strong>」會清掉所有未處理的好友比對，改執行你剛剛按的 F2 自己市場掃描。<br>按「<strong>取消</strong>」則保留好友比對繼續處理，這次 F2 不執行。</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" id="f2-cancel-btn">取消</button>
+                    <button type="button" class="btn btn-danger" id="f2-confirm-btn">丟棄並換區</button>
+                </div>
+            </div>
+        </div>
+    </div>
     <div class="container mt-4">
         {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
@@ -30,6 +56,174 @@
         {% block content %}{% endblock %}
     </div>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    (function () {
+        const PHASE_LABEL = {scanning_self: '我的價格', scanning_friend: '好友價格'};
+        const indicators = document.querySelectorAll('.scan-indicator');
+        const sections = document.querySelectorAll('.region-section');
+        let prevPhase = 'idle';
+        let lastCompleted = null;
+        let lastError = '';
+        const toastEl = document.getElementById('scan-error-toast');
+        const toastBody = document.getElementById('scan-error-toast-body');
+        const toastObj = toastEl ? new bootstrap.Toast(toastEl) : null;
+        const modalEl = document.getElementById('f2-confirm-modal');
+        const modalCount = document.getElementById('f2-confirm-count');
+        const modalObj = modalEl ? new bootstrap.Modal(modalEl) : null;
+        let modalShown = false;
+        if (modalEl) {
+            document.getElementById('f2-confirm-btn').addEventListener('click', () => {
+                fetch('/api/f2_confirm', {method: 'POST'}).catch(() => {});
+            });
+            document.getElementById('f2-cancel-btn').addEventListener('click', () => {
+                fetch('/api/f2_cancel', {method: 'POST'}).catch(() => {});
+            });
+        }
+
+        function setIndicator(el, text) {
+            el.classList.remove('d-none');
+            const t = el.querySelector('.scan-indicator-text');
+            if (t) t.textContent = text;
+        }
+        function hideAll() {
+            indicators.forEach(el => el.classList.add('d-none'));
+            sections.forEach(el => el.classList.remove('is-scanning'));
+            clearFriendPlaceholders();
+        }
+        function markScanning(region) {
+            sections.forEach(el => {
+                if (el.dataset.region === region) el.classList.add('is-scanning');
+                else el.classList.remove('is-scanning');
+            });
+        }
+        function applyFriendPlaceholders(region) {
+            const ph = '<span class="scan-placeholder">辨識中…</span>';
+            const calc = '<span class="scan-placeholder">計算中…</span>';
+            sections.forEach(el => {
+                if (el.dataset.region !== region) return;
+                el.querySelectorAll('tbody tr').forEach(tr => {
+                    if (tr.dataset.scanPlaceholder === '1') return;
+                    const cells = tr.querySelectorAll('td');
+                    const friendVal = cells[2] && cells[2].querySelector('.cell-value');
+                    if (!friendVal || friendVal.textContent.trim() !== '-') return;
+                    tr.dataset.scanPlaceholder = '1';
+                    friendVal.dataset.orig = friendVal.textContent;
+                    friendVal.innerHTML = ph;
+                    if (cells[3]) {
+                        cells[3].dataset.orig = cells[3].innerHTML;
+                        cells[3].innerHTML = ph;
+                    }
+                    const profit = tr.querySelector('.profit-cell');
+                    if (profit) {
+                        profit.dataset.orig = profit.innerHTML;
+                        profit.innerHTML = calc;
+                    }
+                });
+            });
+        }
+        function clearFriendPlaceholders() {
+            document.querySelectorAll('tr[data-scan-placeholder="1"]').forEach(tr => {
+                delete tr.dataset.scanPlaceholder;
+                const cells = tr.querySelectorAll('td');
+                const friendVal = cells[2] && cells[2].querySelector('.cell-value');
+                if (friendVal && friendVal.dataset.orig !== undefined) {
+                    friendVal.textContent = friendVal.dataset.orig;
+                    delete friendVal.dataset.orig;
+                }
+                if (cells[3] && cells[3].dataset.orig !== undefined) {
+                    cells[3].innerHTML = cells[3].dataset.orig;
+                    delete cells[3].dataset.orig;
+                }
+                const profit = tr.querySelector('.profit-cell');
+                if (profit && profit.dataset.orig !== undefined) {
+                    profit.innerHTML = profit.dataset.orig;
+                    delete profit.dataset.orig;
+                }
+            });
+        }
+
+        async function pollStatus() {
+            let d;
+            try {
+                const r = await fetch('/api/status', {cache: 'no-store'});
+                d = await r.json();
+            } catch (e) { return; }
+
+            const phase = d.phase || 'idle';
+            const region = d.region || null;
+            const completed = (typeof d.completed === 'number') ? d.completed : null;
+            const errorBanner = document.getElementById('scan-error-banner');
+            const err = d.error || '';
+            if (errorBanner) {
+                if (err) {
+                    errorBanner.textContent = err;
+                    errorBanner.classList.remove('d-none');
+                } else {
+                    errorBanner.classList.add('d-none');
+                }
+            }
+            // Toast：error 字串從上一次的值變化（且非空）就跳出來
+            if (toastObj && err && err !== lastError) {
+                toastBody.textContent = err;
+                toastObj.show();
+            } else if (toastObj && !err && lastError) {
+                toastObj.hide();
+            }
+            lastError = err;
+
+            // F2 換區確認 modal：依 d.pending_f2 欄位開關
+            if (modalObj) {
+                const pending = d.pending_f2;
+                if (pending && !modalShown) {
+                    if (modalCount) modalCount.textContent = pending.count;
+                    modalObj.show();
+                    modalShown = true;
+                } else if (!pending && modalShown) {
+                    modalObj.hide();
+                    modalShown = false;
+                } else if (pending && modalShown && modalCount) {
+                    modalCount.textContent = pending.count;
+                }
+            }
+
+            // 每完成一張截圖處理，scanner 會 +1，網頁立刻 reload 顯示最新結果
+            if (completed !== null && lastCompleted !== null
+                && completed > lastCompleted && location.pathname === '/compare') {
+                location.reload();
+                return;
+            }
+            if (completed !== null) lastCompleted = completed;
+
+            if (phase === 'idle') {
+                hideAll();
+            } else if (region) {
+                // 已知區域 → 該區域標題 spinner
+                const label = `辨識${PHASE_LABEL[phase] || ''}中…`;
+                indicators.forEach(el => {
+                    if (el.dataset.region === region) setIndicator(el, label);
+                    else el.classList.add('d-none');
+                });
+                if (phase === 'scanning_self') {
+                    // F2：整個表格覆蓋遮罩
+                    markScanning(region);
+                    clearFriendPlaceholders();
+                } else if (phase === 'scanning_friend') {
+                    // F3：只把好友欄空白的列標成「辨識中／計算中」
+                    sections.forEach(el => el.classList.remove('is-scanning'));
+                    applyFriendPlaceholders(region);
+                }
+            } else {
+                // F2 剛進入還沒判斷出地區 → 所有地區都顯示「辨識地區中…」（可能只是重掃配額）
+                indicators.forEach(el => setIndicator(el, '辨識地區中…'));
+                sections.forEach(el => el.classList.remove('is-scanning'));
+                clearFriendPlaceholders();
+            }
+            prevPhase = phase;
+        }
+        setInterval(pollStatus, 1500);
+        pollStatus();
+    })();
+    </script>
     {% block scripts %}{% endblock %}
 </body>
 </html>
