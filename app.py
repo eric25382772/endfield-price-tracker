@@ -10,7 +10,7 @@ from data.repository import (
     get_available_dates,
     upsert_friend_price,
     get_friend_names, get_profit_comparison, get_item_profit,
-    get_active_stockpile, mark_stockpile_sold,
+    get_active_stockpile, mark_stockpile_sold_by_item,
     snapshot_date, delete_date_data, restore_snapshot,
 )
 
@@ -143,10 +143,10 @@ def friend_manual_input():
 
 @app.route('/stockpile/sell', methods=['POST'])
 def stockpile_sell():
-    """標記囤貨為已賣出"""
-    stockpile_id = request.form.get('stockpile_id', type=int)
-    if stockpile_id:
-        mark_stockpile_sold(stockpile_id)
+    """標記囤貨為已賣出（依 item_id 一次清掉所有 sold=0 紀錄）"""
+    item_id = request.form.get('item_id', type=int)
+    if item_id:
+        mark_stockpile_sold_by_item(item_id)
         flash('已標記為賣出', 'success')
     return redirect(url_for('compare'))
 

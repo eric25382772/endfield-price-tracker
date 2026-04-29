@@ -338,7 +338,7 @@
                     <td class="text-center"><small>{{ item.game_date_bought }}</small></td>
                     <td class="text-center">
                         <form method="POST" action="/stockpile/sell" style="display:inline">
-                            <input type="hidden" name="stockpile_id" value="{{ item.id }}">
+                            <input type="hidden" name="item_id" value="{{ item.item_id }}">
                             <button type="submit" class="btn btn-sm btn-outline-success" title="標記為已賣出">賣出</button>
                         </form>
                     </td>

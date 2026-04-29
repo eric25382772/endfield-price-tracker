@@ -252,20 +252,35 @@ def upsert_stockpile(item_id, buy_price, region, game_date=None):
 
 
 def get_active_stockpile():
-    """取得所有未賣出的囤貨，搭配好友最高價計算利潤。"""
+    """取得所有未賣出的囤貨，搭配好友最高價計算利潤。
+
+    同一 item_id 跨遊戲日重複插入時，UI 端壓成一列：
+    取最早 game_date_bought、最低 buy_price，id 取代表列（最早那筆）。
+    """
     conn = get_db()
     rows = conn.execute("""
-        SELECT s.id, s.item_id, i.name_cn, i.name_en, i.region,
-               s.buy_price, s.game_date_bought,
+        SELECT g.item_id,
+               (SELECT s2.id FROM stockpile s2
+                WHERE s2.item_id = g.item_id AND s2.sold = 0
+                ORDER BY s2.game_date_bought ASC, s2.id ASC LIMIT 1) AS id,
+               i.name_cn, i.name_en, i.region,
+               g.buy_price,
+               g.game_date_bought,
                (SELECT MAX(fp.market_price)
                 FROM friend_prices fp
-                WHERE fp.item_id = s.item_id
-                  AND fp.game_date = (SELECT MAX(fp2.game_date) FROM friend_prices fp2 WHERE fp2.item_id = s.item_id)
+                WHERE fp.item_id = g.item_id
+                  AND fp.game_date = (SELECT MAX(fp2.game_date) FROM friend_prices fp2 WHERE fp2.item_id = g.item_id)
                ) as friend_best_price
-        FROM stockpile s
-        JOIN items i ON s.item_id = i.id
-        WHERE s.sold = 0
-        ORDER BY s.game_date_bought DESC
+        FROM (
+            SELECT item_id,
+                   MIN(game_date_bought) AS game_date_bought,
+                   MIN(buy_price) AS buy_price
+            FROM stockpile
+            WHERE sold = 0
+            GROUP BY item_id
+        ) g
+        JOIN items i ON g.item_id = i.id
+        ORDER BY g.game_date_bought DESC
     """).fetchall()
     conn.close()
     results = []
@@ -283,6 +298,14 @@ def mark_stockpile_sold(stockpile_id):
     """標記囤貨為已賣出。"""
     conn = get_db()
     conn.execute("UPDATE stockpile SET sold = 1 WHERE id = ?", (stockpile_id,))
+    conn.commit()
+    conn.close()
+
+
+def mark_stockpile_sold_by_item(item_id):
+    """標記某物品所有未賣出的囤貨為已賣出（合併顯示後一鍵清掉）。"""
+    conn = get_db()
+    conn.execute("UPDATE stockpile SET sold = 1 WHERE item_id = ? AND sold = 0", (item_id,))
     conn.commit()
     conn.close()
 
