@@ -3,7 +3,11 @@
 根據遊戲實際畫面佈局校正。
 
 谷地: 7+5 佈局 (第一行7個, 第二行5個)
-武陵: v2.0 起 1行7個 (原 5 個 + 息壤18 + 清波19), 遊戲畫面順序每日隨機
+武陵: v3.0 起 7+1 佈局 (v2.0 為 1 行 7 個，5/17 改版新增 item_20 息壤色煙火)
+      遊戲畫面順序每日隨機，跑工具前依當天截圖更新 WULING_SCREEN_ORDER_ROW1/ROW2
+
+注意：本腳本只處理市場小卡。好友參考圖 (data/item_images/friend/) 是固定資產，
+不可由腳本自動覆寫（見 CLAUDE.md 鐵則）。新增物品的好友圖請手動裁切。
 """
 import cv2
 import os
@@ -19,10 +23,11 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), '..', 'static', 'images', '
 # 遊戲畫面順序 → item_id 對應
 # ========================================
 
-# 武陵：遊戲畫面從左到右的順序 → item_id（每日隨機，跑工具前依當天截圖更新）
-# item_id 13-19 (database: 武俠13, 冬蟲14, 武陵凍梨15, 岳研16, 天師龍17, 息壤18, 清波19)
-# 2026-04-19 截圖順序: 岳研, 武俠, 息壤, 武陵凍梨, 清波, 冬蟲, 天師龍
-WULING_SCREEN_ORDER = [16, 13, 18, 15, 19, 14, 17]
+# 武陵：遊戲畫面從左到右、上到下的順序 → item_id（每日隨機，跑工具前依當天截圖更新）
+# item_id 13-20 (database: 武俠13, 冬蟲14, 武陵凍梨15, 岳研16, 天師龍17, 息壤18, 清波19, 息壤色煙火20)
+# 2026-05-17 截圖順序: row1 = 武俠, 天師龍, 武陵凍梨, 清波, 岳研, 冬蟲, 息壤色煙火; row2 = 息壤
+WULING_SCREEN_ORDER_ROW1 = [13, 17, 15, 19, 16, 14, 20]
+WULING_SCREEN_ORDER_ROW2 = [18]
 
 # 四號谷地：遊戲畫面從左到右、上到下
 # item_id 1-12, 遊戲順序 = 資料庫順序
@@ -45,7 +50,7 @@ def save_debug_grid(img, cards, labels, output_name):
 
 
 def extract_wuling(screenshot_path):
-    """Extract 7 Wuling item images (v2.0 起為 7 格佈局)."""
+    """Extract Wuling item images (v3.0 起為 7+1 兩行佈局)."""
     img = cv2.imread(screenshot_path)
     if img is None:
         print(f"Cannot read {screenshot_path}")
@@ -54,24 +59,43 @@ def extract_wuling(screenshot_path):
     print(f"Wuling: {w}x{h}")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # 7 items, one row (沿用谷地 Row1 的 x 間距，y 依武陵單行位置)
-    card_x_starts = [143, 447, 751, 1055, 1359, 1663, 1967]
+    # v3.0: 沿用谷地 7+5 佈局的 x/y 座標（武陵單行時期的 y=680-920 已不適用）
+    row1_x_starts = [143, 447, 751, 1055, 1359, 1663, 1967]
+    row2_x_starts = [143]
     card_width = 270
-    y_top, y_bottom = 680, 920
+    row1_y = (420, 660)
+    row2_y = (850, 1090)
 
     cards = []
-    for i, item_id in enumerate(WULING_SCREEN_ORDER):
-        x1 = card_x_starts[i]
-        x2 = x1 + card_width
+    all_ids = []
 
-        cards.append((x1, y_top, x2, y_bottom))
-        crop = img[y_top:y_bottom, x1:x2]
+    for i, item_id in enumerate(WULING_SCREEN_ORDER_ROW1):
+        x1 = row1_x_starts[i]
+        x2 = x1 + card_width
+        y1, y2 = row1_y
+
+        cards.append((x1, y1, x2, y2))
+        all_ids.append(item_id)
+        crop = img[y1:y2, x1:x2]
 
         filename = f"item_{item_id}.png"
         cv2.imwrite(os.path.join(OUTPUT_DIR, filename), crop)
-        print(f"  screen pos {i+1} -> item_id {item_id}: {filename}")
+        print(f"  R1 pos {i+1} -> item_id {item_id}: {filename}")
 
-    save_debug_grid(img, cards, WULING_SCREEN_ORDER, '_debug_wuling.png')
+    for i, item_id in enumerate(WULING_SCREEN_ORDER_ROW2):
+        x1 = row2_x_starts[i]
+        x2 = x1 + card_width
+        y1, y2 = row2_y
+
+        cards.append((x1, y1, x2, y2))
+        all_ids.append(item_id)
+        crop = img[y1:y2, x1:x2]
+
+        filename = f"item_{item_id}.png"
+        cv2.imwrite(os.path.join(OUTPUT_DIR, filename), crop)
+        print(f"  R2 pos {i+1} -> item_id {item_id}: {filename}")
+
+    save_debug_grid(img, cards, all_ids, '_debug_wuling.png')
 
 
 def extract_valley(screenshot_path):

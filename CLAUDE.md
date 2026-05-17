@@ -17,8 +17,8 @@
 ## Game-specific facts (WHY，純 code 推不出來)
 
 - **四號谷地：** 7+5 佈局（不是 6+6）；item_id 1-12
-- **武陵：** v2.0 起 1 行 7 格；item_id 13-19；顯示順序每天隨機，靠 OCR 名稱 + fuzzy match 對應
-- **每日配額上限：** 谷地 +320 / 上限 960；武陵 +125 / 上限 250（4/17 改版前是 65/130）
+- **武陵：** v3.0 起 1 行 7 + 第 2 行 1 格；item_id 13-20（v2.0~v2.1.1 為 1 行 7 格，item_id 13-19）；顯示順序每天隨機，靠 OCR 名稱 + fuzzy match 對應
+- **每日配額上限：** 谷地 +320 / 上限 960；武陵 +140 / 上限 280（v3.0 5/17 起；4/17~5/16 為 +125/250；4/17 前為 65/130）
 - **好友畫面：** 一物一頁，左大圓框 + 右列表（# 名稱 + 4 位數價格）
 - **好友物品圖裁切座標 (2560x1440)：** x=500-780, y=400-680
 - **遊戲日期：** 以凌晨 4:00 為分界
@@ -73,6 +73,8 @@ SELECT seq FROM sqlite_sequence WHERE name='items';  -- 對比 SELECT MAX(id) FR
 ```
 
 **Why:** v2.0 加 item_18/19 時踩過，本機 seq=4409 導致新 item 拿到 4370/4371，破壞 image_matcher 的 `range(13, 20)` 硬編碼。一般使用者升級時不會踩到，只發生在開發機。
+
+**重設時機很重要：** [data/models.py](data/models.py) 的 `init_db()` 用 `INSERT OR IGNORE`，SQLite AUTOINCREMENT 連被 IGNORE 的 row 也會消耗 seq（每次啟動 +N，N=items 數）。所以 seq 重設要在「使用者重啟 scanner 之前」做，不能在改 code 之前就重設、之後又被 scanner 重啟推回去。v3.0 加 item_20 時踩過：先重設 seq=19，使用者重啟 scanner 後 seq 被推到 79，item_20 拿到 id=39。
 
 ### F2 / F3 順序硬規則（v2.1 起）
 
