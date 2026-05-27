@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, abort
 from config import REGIONS, get_game_date, PROFIT_THRESHOLD, STOCKPILE_THRESHOLD
 from data.models import init_db
 from data.items import REGION_QUOTA, get_region_quota, get_visible_item_names
@@ -12,7 +12,10 @@ from data.repository import (
     get_friend_names, get_profit_comparison, get_item_profit,
     get_active_stockpile, mark_stockpile_sold_by_item,
     snapshot_date, delete_date_data, restore_snapshot,
+    get_price_history, get_friend_max_price_history,
+    get_items_by_region,
 )
+from tools.predictor import predict_series
 
 app = Flask(__name__)
 app.secret_key = 'endfield-price-tracker-secret'
@@ -117,6 +120,99 @@ def compare():
                            selected_date=selected_date,
                            available_dates=available,
                            has_backup=has_backup)
+
+
+ITEM_IMAGES_DIR = Path(__file__).parent / 'data' / 'item_images'
+
+
+@app.route('/item_image/<int:item_id>')
+def item_image(item_id):
+    """歷史頁卡片用：回傳 data/item_images/item_<id>.png"""
+    fname = f'item_{item_id}.png'
+    if not (ITEM_IMAGES_DIR / fname).exists():
+        abort(404)
+    return send_from_directory(ITEM_IMAGES_DIR, fname)
+
+
+@app.route('/history')
+def history():
+    """歷史走勢頁面"""
+    return render_template('history.html')
+
+
+@app.route('/api/history-data')
+def api_history_data():
+    """每物品的時間序列。
+
+    Query params:
+      region: 'valley_iv' | 'wuling'
+      days:   7 | 14 | 30 （預設 30）
+    """
+    region = request.args.get('region', 'valley_iv')
+    try:
+        days = int(request.args.get('days', 30))
+    except (TypeError, ValueError):
+        days = 30
+    if days not in (7, 14, 30):
+        days = 30
+    if region not in REGIONS:
+        return jsonify(ok=False, error='unknown region'), 400
+
+    current_date = get_game_date()
+    visible_names = get_visible_item_names(region, current_date)
+    items = [it for it in get_items_by_region(region) if it['name_cn'] in visible_names]
+
+    result = []
+    for it in items:
+        my_series = get_price_history(it['id'], days=days)
+        friend_series = get_friend_max_price_history(it['id'], days=days)
+        result.append({
+            'item_id': it['id'],
+            'name_cn': it['name_cn'],
+            'name_en': it['name_en'],
+            'my_series': [{'date': d, 'price': p} for d, p in my_series],
+            'friend_series': [{'date': d, 'price': p} for d, p in friend_series],
+        })
+    return jsonify(ok=True, region=region, days=days, items=result)
+
+
+@app.route('/forecast')
+def forecast():
+    """價格預測頁面：以今日為基準，外推未來 7 天走勢"""
+    return render_template('forecast.html')
+
+
+@app.route('/api/forecast-data')
+def api_forecast_data():
+    """各物品最近 14 天歷史 + 未來 7 天預測（我方與好友最高價各一條）。"""
+    region = request.args.get('region', 'valley_iv')
+    if region not in REGIONS:
+        return jsonify(ok=False, error='unknown region'), 400
+
+    current_date = get_game_date()
+    visible_names = get_visible_item_names(region, current_date)
+    items = [it for it in get_items_by_region(region) if it['name_cn'] in visible_names]
+
+    # 批次抓 region 內所有物品的歷史（涵蓋 4/17 改版後）給 drift 計算
+    my_region_history = {it['id']: get_price_history(it['id'], days=60) for it in items}
+    friend_region_history = {it['id']: get_friend_max_price_history(it['id'], days=60) for it in items}
+
+    result = []
+    for it in items:
+        my_hist = my_region_history[it['id']]
+        friend_hist = friend_region_history[it['id']]
+        my_forecast = predict_series(my_hist, n_future=7, from_date=current_date,
+                                     region_history=my_region_history)
+        friend_forecast = predict_series(friend_hist, n_future=7, from_date=current_date,
+                                         region_history=friend_region_history)
+        result.append({
+            'item_id': it['id'],
+            'name_cn': it['name_cn'],
+            'name_en': it['name_en'],
+            'my_forecast': my_forecast,
+            'friend_forecast': friend_forecast,
+        })
+    return jsonify(ok=True, region=region, today=current_date, items=result)
 
 
 @app.route('/friend/manual', methods=['POST'])

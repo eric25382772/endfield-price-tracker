@@ -382,3 +382,32 @@ def get_available_dates(limit=30):
     """, (limit,)).fetchall()
     conn.close()
     return [row['game_date'] for row in rows]
+
+
+def get_price_history(item_id, days=30):
+    """取得某物品最近 N 個遊戲日的我方市場價時間序列（依日期遞增）。"""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT game_date, market_price
+        FROM prices
+        WHERE item_id = ?
+          AND game_date >= date(?, ?)
+        ORDER BY game_date ASC
+    """, (item_id, get_game_date(), f'-{days - 1} days')).fetchall()
+    conn.close()
+    return [(r['game_date'], r['market_price']) for r in rows]
+
+
+def get_friend_max_price_history(item_id, days=30):
+    """取得某物品最近 N 個遊戲日的好友最高價時間序列（依日期遞增）。"""
+    conn = get_db()
+    rows = conn.execute("""
+        SELECT game_date, MAX(market_price) AS max_price
+        FROM friend_prices
+        WHERE item_id = ?
+          AND game_date >= date(?, ?)
+        GROUP BY game_date
+        ORDER BY game_date ASC
+    """, (item_id, get_game_date(), f'-{days - 1} days')).fetchall()
+    conn.close()
+    return [(r['game_date'], r['max_price']) for r in rows]
