@@ -37,8 +37,12 @@
 ## Release workflow
 
 - **版本號規則：** 主版號（v2.x）= 遊戲內容改版；次版號 = 功能/修補
-- 每版要在 [CHANGELOG.md](CHANGELOG.md) 加一行；[README.md](README.md) 開頭的「目前 GitHub 上架版本」也要更新
+- 每版要同步改 **3 個地方**（少改任何一個都會脫節）：
+  1. [CHANGELOG.md](CHANGELOG.md) 加一行
+  2. [README.md](README.md) 開頭的「目前 GitHub 上架版本」
+  3. [installer/EndfieldTracker.iss](installer/EndfieldTracker.iss) 的 `#define MyAppVersion`（決定 setup.exe 檔名 + 安裝程式顯示的版本；v2.1.1/v3.0 都漏掉這個，到 v3.1 才補齊）
 - setup.exe 用 Inno Setup 編譯，工具鏈與步驟看 [installer/README.md](installer/README.md)
+- **「修自己沒做對」不算升版：** 若上一版功能實作有誤、後續修正屬於該版完成，把改動合進原 CHANGELOG 條目；不要為了補做開新版號
 
 ## 鐵則（過去踩過的坑，不要違反）
 
