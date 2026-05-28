@@ -37,6 +37,13 @@ FUZZY_MATCH_THRESHOLD = 70  # thefuzz uses 0-100 scale
 PROFIT_THRESHOLD = 3000      # 利潤 < 3000 建議不買（配額有限）
 STOCKPILE_THRESHOLD = 1400   # 自己價格 < 1400 建議囤貨（低於基準30%）
 
+# v3.2 等待提示：明日預測利潤需 > 今日 × WAIT_GAIN_RATIO，且信心度 >= WAIT_MIN_CONFIDENCE
+WAIT_GAIN_RATIO = 1.2        # 明日預測比今日高 20% 才值得等
+WAIT_MIN_CONFIDENCE = 0.5    # 預測信心度門檻
+
+# v3.2 可買徽章：利潤 >= 同區最高利潤 × BUYABLE_RATIO 才算「次優選擇」
+BUYABLE_RATIO = 0.7
+
 # Regions
 REGIONS = {
     'valley_iv': '四號谷地',

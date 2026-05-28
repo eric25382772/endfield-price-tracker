@@ -3,6 +3,48 @@
 {% macro item_image(item) %}
 <img src="/static/images/items/item_{{ item.item_id }}.png" alt="{{ item.name_cn }}" style="width:50px;height:auto;vertical-align:middle;margin-right:8px;border-radius:4px;">
 {% endmacro %}
+{% macro suggestion_badge(item, region_quota, region_max, region_best_id, region_top_profit) %}
+    {# v3.2:
+       - 必買：同區當日最高利潤物品專屬（其他即使利潤 >= profit_threshold 也只給「可買」）
+       - 明日更高：該物品明日預測利潤 > 同區今日最高利潤 × wait_gain_ratio + 信心度 + 配額未滿
+       - 建議囤貨：my_price <= 該物品近 30 天 P25（資料不足 7 天時 fallback 到 STOCKPILE_THRESHOLD）
+    #}
+    {% set quota_not_full = (region_quota is none) or (region_quota.remaining < region_max) %}
+    {% set show_wait = (
+        item.pred_profit is not none
+        and region_top_profit is not none
+        and item.pred_profit > region_top_profit * wait_gain_ratio
+        and item.pred_confidence >= wait_min_confidence
+        and quota_not_full
+    ) %}
+    {% if show_wait %}
+        <span class="badge bg-warning text-dark" title="同區今日最高 +{{ region_top_profit }}，此物品明日預測 +{{ item.pred_profit }}">
+            &#9203; 明日更高 (信心 {{ (item.pred_confidence*100)|int }}%)
+        </span>
+    {% elif item.profit is not none %}
+        {% if item.item_id == region_best_id and item.profit > 0 %}
+            <span class="badge bg-success">必買</span>
+        {% elif region_top_profit > 0 and item.profit >= region_top_profit * buyable_ratio %}
+            <span class="badge bg-info" title="同區最高 +{{ region_top_profit }} × {{ buyable_ratio }} 以上">可買</span>
+        {% elif item.profit > 0 %}
+            <span class="badge bg-warning text-dark">低利潤</span>
+        {% elif item.profit == 0 %}
+            <span class="badge bg-secondary">持平</span>
+        {% else %}
+            <span class="badge bg-danger">虧損</span>
+        {% endif %}
+    {% else %}
+        <span class="text-muted">-</span>
+    {% endif %}
+    {% set stockpile_hit = (
+        (item.stockpile_floor is not none and item.my_price is not none and item.my_price <= item.stockpile_floor)
+        or (item.stockpile_floor is none and item.my_price is not none and item.my_price < stockpile_threshold)
+    ) %}
+    {% if stockpile_hit %}
+        <br><span class="badge bg-warning text-dark mt-1"
+                 title="{% if item.stockpile_floor is not none %}近 30 天 P25 = {{ item.stockpile_floor }}{% else %}資料不足，套用預設門檻 {{ stockpile_threshold }}{% endif %}">建議囤貨</span>
+    {% endif %}
+{% endmacro %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
     <div class="d-flex align-items-center gap-2">
         <h2 class="mb-0">利潤比對</h2>
@@ -156,24 +198,7 @@
                         {% endif %}
                     </td>
                     <td class="text-center badge-cell">
-                        {% if item.profit is not none %}
-                            {% if item.profit >= profit_threshold %}
-                                <span class="badge bg-success">必買</span>
-                            {% elif item.profit >= 1500 %}
-                                <span class="badge bg-info">可買</span>
-                            {% elif item.profit > 0 %}
-                                <span class="badge bg-warning text-dark">低利潤</span>
-                            {% elif item.profit == 0 %}
-                                <span class="badge bg-secondary">持平</span>
-                            {% else %}
-                                <span class="badge bg-danger">虧損</span>
-                            {% endif %}
-                        {% else %}
-                            <span class="text-muted">-</span>
-                        {% endif %}
-                        {% if item.my_price is not none and item.my_price < stockpile_threshold %}
-                            <br><span class="badge bg-warning text-dark mt-1">建議囤貨</span>
-                        {% endif %}
+                        {{ suggestion_badge(item, valley_quota, region_quota.valley_iv.max, valley_best_id, valley_top_profit) }}
                     </td>
                 </tr>
                 {% endfor %}
@@ -255,24 +280,7 @@
                         {% endif %}
                     </td>
                     <td class="text-center badge-cell">
-                        {% if item.profit is not none %}
-                            {% if item.profit >= profit_threshold %}
-                                <span class="badge bg-success">必買</span>
-                            {% elif item.profit >= 1500 %}
-                                <span class="badge bg-info">可買</span>
-                            {% elif item.profit > 0 %}
-                                <span class="badge bg-warning text-dark">低利潤</span>
-                            {% elif item.profit == 0 %}
-                                <span class="badge bg-secondary">持平</span>
-                            {% else %}
-                                <span class="badge bg-danger">虧損</span>
-                            {% endif %}
-                        {% else %}
-                            <span class="text-muted">-</span>
-                        {% endif %}
-                        {% if item.my_price is not none and item.my_price < stockpile_threshold %}
-                            <br><span class="badge bg-warning text-dark mt-1">建議囤貨</span>
-                        {% endif %}
+                        {{ suggestion_badge(item, wuling_quota, region_quota.wuling.max, wuling_best_id, wuling_top_profit) }}
                     </td>
                 </tr>
                 {% endfor %}
@@ -328,11 +336,31 @@
                             <span class="{% if item.stockpile_profit > 0 %}text-success{% elif item.stockpile_profit < 0 %}text-danger{% endif %}">
                                 {% if item.stockpile_profit > 0 %}+{% endif %}{{ item.stockpile_profit }}
                             </span>
-                            {% if item.stockpile_profit >= profit_threshold %}
+                            {# v3.2: 預測明日好友最高 → 利潤明顯更高 + 信心度夠 → 改顯示「⏳ 明日更高」 #}
+                            {% set wait_sell = (
+                                item.pred_stockpile_profit is not none
+                                and item.stockpile_profit > 0
+                                and item.pred_stockpile_profit > item.stockpile_profit * wait_gain_ratio
+                                and item.pred_confidence >= wait_min_confidence
+                            ) %}
+                            {% if wait_sell %}
+                                <br><span class="badge bg-warning text-dark" title="今日 +{{ item.stockpile_profit }}，明日預測 +{{ item.pred_stockpile_profit }}">
+                                    &#9203; 明日更高
+                                </span>
+                            {% elif item.stockpile_profit >= profit_threshold %}
                                 <br><span class="badge bg-success">可賣</span>
                             {% endif %}
                         {% else %}
                             <span class="text-muted">-</span>
+                        {% endif %}
+                        {% if item.pred_stockpile_profit is not none %}
+                            <br><small class="text-muted">
+                                明日預測：
+                                <span class="{% if item.pred_stockpile_profit > 0 %}text-success{% elif item.pred_stockpile_profit < 0 %}text-danger{% endif %}">
+                                    {% if item.pred_stockpile_profit > 0 %}+{% endif %}{{ item.pred_stockpile_profit }}
+                                </span>
+                                （信心 {{ (item.pred_confidence*100)|int }}%）
+                            </small>
                         {% endif %}
                     </td>
                     <td class="text-center"><small>{{ item.game_date_bought }}</small></td>

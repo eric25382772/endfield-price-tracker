@@ -1,8 +1,12 @@
 import json
+import statistics
 from datetime import datetime
 from pathlib import Path
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, abort
-from config import REGIONS, get_game_date, PROFIT_THRESHOLD, STOCKPILE_THRESHOLD
+from config import (
+    REGIONS, get_game_date, PROFIT_THRESHOLD, STOCKPILE_THRESHOLD,
+    WAIT_GAIN_RATIO, WAIT_MIN_CONFIDENCE, BUYABLE_RATIO,
+)
 from data.models import init_db
 from data.items import REGION_QUOTA, get_region_quota, get_visible_item_names
 from data.repository import (
@@ -59,6 +63,39 @@ def update_quota():
     return redirect(url_for('index', date=game_date))
 
 
+def _attach_forecast(rows, region, current_date, hist_cache):
+    """對每列 in-place 加 my_pred / fr_pred / pred_profit / pred_confidence。
+
+    hist_cache: {region: {'my': {item_id: series}, 'fr': {item_id: series}}}
+    讓後續囤貨段重用同 region fr_hist 並計算 drift，避免重查 DB / 混兩區。
+    """
+    my_hist = {r['item_id']: get_price_history(r['item_id'], days=60) for r in rows}
+    fr_hist = {r['item_id']: get_friend_max_price_history(r['item_id'], days=60) for r in rows}
+    hist_cache[region] = {'my': my_hist, 'fr': fr_hist}
+    for r in rows:
+        my_f = predict_series(my_hist[r['item_id']], n_future=1, from_date=current_date,
+                              region_history=my_hist)
+        fr_f = predict_series(fr_hist[r['item_id']], n_future=1, from_date=current_date,
+                              region_history=fr_hist)
+        my_pred = my_f['predictions'][0]['predicted'] if my_f['predictions'] else None
+        fr_pred = fr_f['predictions'][0]['predicted'] if fr_f['predictions'] else None
+        r['my_pred'] = my_pred
+        r['fr_pred'] = fr_pred
+        r['pred_profit'] = (fr_pred - my_pred) if (my_pred and fr_pred) else None
+        r['pred_confidence'] = round(min(my_f['confidence'], fr_f['confidence']), 2)
+        # v3.2: 囤貨門檻改用近 30 天我方價格的第 25 百分位（≥ 7 天才算，否則 None → 用舊門檻）
+        recent_30 = [p for d, p in my_hist[r['item_id']] if d >= _date_n_days_ago(current_date, 30)]
+        if len(recent_30) >= 7:
+            r['stockpile_floor'] = int(statistics.quantiles(recent_30, n=4)[0])
+        else:
+            r['stockpile_floor'] = None
+
+
+def _date_n_days_ago(current_date, n):
+    from datetime import date, timedelta
+    return (date.fromisoformat(current_date) - timedelta(days=n - 1)).isoformat()
+
+
 @app.route('/compare')
 def compare():
     """利潤比對頁面 - 自己 vs 好友價格"""
@@ -77,6 +114,12 @@ def compare():
     valley_comparison = [r for r in valley_comparison if r['name_cn'] in valley_visible]
     wuling_comparison = [r for r in wuling_comparison if r['name_cn'] in wuling_visible]
 
+    # v3.2：每物品掛上明日預測（my_pred / fr_pred / pred_profit / pred_confidence）
+    # 預測 from_date 用 selected date，讓選歷史日期時也能看到「當天的明日預測」
+    hist_cache = {}
+    _attach_forecast(valley_comparison, 'valley_iv', date, hist_cache)
+    _attach_forecast(wuling_comparison, 'wuling', date, hist_cache)
+
     # 擇一最高利潤（配額限制下實際只能挑一種貨買）
     def pick_best(rows):
         profitable = [r for r in rows if r['profit'] is not None and r['profit'] > 0]
@@ -94,6 +137,18 @@ def compare():
     stockpile = get_active_stockpile()
     valley_quota = get_quota('valley_iv', date)
     wuling_quota = get_quota('wuling', date)
+
+    # v3.2：囤貨也加上「明日好友最高價」預測 + 信心度（用該物品所屬 region 的快取算 drift）
+    for s in stockpile:
+        iid = s['item_id']
+        region_cache = hist_cache.get(s['region'], {}).get('fr', {})
+        fr_series = region_cache.get(iid) or get_friend_max_price_history(iid, days=60)
+        fr_f = predict_series(fr_series, n_future=1, from_date=date,
+                              region_history=region_cache or {iid: fr_series})
+        fr_pred = fr_f['predictions'][0]['predicted'] if fr_f['predictions'] else None
+        s['fr_pred'] = fr_pred
+        s['pred_stockpile_profit'] = (fr_pred - s['buy_price']) if fr_pred is not None else None
+        s['pred_confidence'] = fr_f['confidence']
 
     backup_path = Path(__file__).parent / 'data' / f'reset_backup_{date}.json'
     has_backup = backup_path.exists()
@@ -116,6 +171,13 @@ def compare():
                            region_quota=region_quota_for_date,
                            profit_threshold=PROFIT_THRESHOLD,
                            stockpile_threshold=STOCKPILE_THRESHOLD,
+                           wait_gain_ratio=WAIT_GAIN_RATIO,
+                           wait_min_confidence=WAIT_MIN_CONFIDENCE,
+                           buyable_ratio=BUYABLE_RATIO,
+                           valley_best_id=(valley_best['item_id'] if valley_best else None),
+                           wuling_best_id=(wuling_best['item_id'] if wuling_best else None),
+                           valley_top_profit=(valley_best['profit'] if valley_best else 0),
+                           wuling_top_profit=(wuling_best['profit'] if wuling_best else 0),
                            current_date=current_date,
                            selected_date=selected_date,
                            available_dates=available,
