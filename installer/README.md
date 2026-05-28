@@ -11,7 +11,7 @@
 
 ## 建置
 
-雙擊 `build.bat`，編譯產出會放在 `dist/EndfieldTracker_Setup_v3.1.exe`（不進 git，掛到 GitHub Release）。
+雙擊 `build.bat`，編譯產出會放在 `dist/EndfieldTracker_Setup_v3.2.exe`（不進 git，掛到 GitHub Release）。
 
 ## 為什麼需要 idp
 
