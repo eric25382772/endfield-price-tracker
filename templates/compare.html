@@ -36,13 +36,19 @@
     {% else %}
         <span class="text-muted">-</span>
     {% endif %}
-    {% set stockpile_hit = (
+    {# v3.2 補 A：建議囤貨加「未來 3 天 my 不會更低」前提（信心 < 50% 時退回只看 P25/threshold） #}
+    {% set future_my_ok = (
+        item.my_pred_3day_min is none
+        or item.my_pred_confidence < wait_min_confidence
+        or (item.my_price is not none and item.my_price <= item.my_pred_3day_min)
+    ) %}
+    {% set stockpile_hit = future_my_ok and (
         (item.stockpile_floor is not none and item.my_price is not none and item.my_price <= item.stockpile_floor)
         or (item.stockpile_floor is none and item.my_price is not none and item.my_price < stockpile_threshold)
     ) %}
     {% if stockpile_hit %}
         <br><span class="badge bg-warning text-dark mt-1"
-                 title="{% if item.stockpile_floor is not none %}近 30 天 P25 = {{ item.stockpile_floor }}{% else %}資料不足，套用預設門檻 {{ stockpile_threshold }}{% endif %}">建議囤貨</span>
+                 title="{% if item.stockpile_floor is not none %}近 30 天 P25 = {{ item.stockpile_floor }}{% else %}預設門檻 {{ stockpile_threshold }}{% endif %}{% if item.my_pred_3day_min is not none %}；未來 3 天 my 最低預測 = {{ item.my_pred_3day_min }} (D+{{ item.my_pred_3day_min_offset }}){% endif %}">建議囤貨</span>
     {% endif %}
 {% endmacro %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -196,6 +202,20 @@
                         {% else %}
                             <span class="text-muted">-</span>
                         {% endif %}
+                        {# v3.2 補 C：跨日最佳利潤（買日 ≠ 今天 或 賣日 ≠ 今天，且 > 今日利潤 + 500，信心度 ≥ 50%） #}
+                        {% if item.cross_day_profit is not none
+                              and not item.cross_day_is_today
+                              and item.profit is not none
+                              and item.cross_day_profit > item.profit + 500
+                              and item.my_pred_confidence >= wait_min_confidence
+                              and item.fr_pred_confidence >= wait_min_confidence %}
+                            <br><small class="text-muted">
+                                跨日最佳：
+                                <span class="text-success">+{{ item.cross_day_profit }}</span>
+                                <br>{% if item.cross_day_buy_offset == 0 %}今天{% else %}D+{{ item.cross_day_buy_offset }}{% endif %} 買
+                                → {% if item.cross_day_sell_offset == 0 %}今天{% else %}D+{{ item.cross_day_sell_offset }}{% endif %} 賣
+                            </small>
+                        {% endif %}
                     </td>
                     <td class="text-center badge-cell">
                         {{ suggestion_badge(item, valley_quota, region_quota.valley_iv.max, valley_best_id, valley_top_profit) }}
@@ -278,6 +298,20 @@
                         {% else %}
                             <span class="text-muted">-</span>
                         {% endif %}
+                        {# v3.2 補 C：跨日最佳利潤（買日 ≠ 今天 或 賣日 ≠ 今天，且 > 今日利潤 + 500，信心度 ≥ 50%） #}
+                        {% if item.cross_day_profit is not none
+                              and not item.cross_day_is_today
+                              and item.profit is not none
+                              and item.cross_day_profit > item.profit + 500
+                              and item.my_pred_confidence >= wait_min_confidence
+                              and item.fr_pred_confidence >= wait_min_confidence %}
+                            <br><small class="text-muted">
+                                跨日最佳：
+                                <span class="text-success">+{{ item.cross_day_profit }}</span>
+                                <br>{% if item.cross_day_buy_offset == 0 %}今天{% else %}D+{{ item.cross_day_buy_offset }}{% endif %} 買
+                                → {% if item.cross_day_sell_offset == 0 %}今天{% else %}D+{{ item.cross_day_sell_offset }}{% endif %} 賣
+                            </small>
+                        {% endif %}
                     </td>
                     <td class="text-center badge-cell">
                         {{ suggestion_badge(item, wuling_quota, region_quota.wuling.max, wuling_best_id, wuling_top_profit) }}
@@ -336,7 +370,7 @@
                             <span class="{% if item.stockpile_profit > 0 %}text-success{% elif item.stockpile_profit < 0 %}text-danger{% endif %}">
                                 {% if item.stockpile_profit > 0 %}+{% endif %}{{ item.stockpile_profit }}
                             </span>
-                            {# v3.2: 預測明日好友最高 → 利潤明顯更高 + 信心度夠 → 改顯示「⏳ 明日更高」 #}
+                            {# v3.2 補 B：未來 7 天最高好友預測 → 利潤明顯更高 + 信心度夠 → 改顯示「⏳ 未來更高」 #}
                             {% set wait_sell = (
                                 item.pred_stockpile_profit is not none
                                 and item.stockpile_profit > 0
@@ -344,8 +378,8 @@
                                 and item.pred_confidence >= wait_min_confidence
                             ) %}
                             {% if wait_sell %}
-                                <br><span class="badge bg-warning text-dark" title="今日 +{{ item.stockpile_profit }}，明日預測 +{{ item.pred_stockpile_profit }}">
-                                    &#9203; 明日更高
+                                <br><span class="badge bg-warning text-dark" title="今日 +{{ item.stockpile_profit }}，未來 7 天最高預測 +{{ item.pred_stockpile_profit }}">
+                                    &#9203; 未來更高 (D+{{ item.fr_pred_max_offset }})
                                 </span>
                             {% elif item.stockpile_profit >= profit_threshold %}
                                 <br><span class="badge bg-success">可賣</span>
@@ -355,11 +389,11 @@
                         {% endif %}
                         {% if item.pred_stockpile_profit is not none %}
                             <br><small class="text-muted">
-                                明日預測：
+                                未來 7 天最高預測：
                                 <span class="{% if item.pred_stockpile_profit > 0 %}text-success{% elif item.pred_stockpile_profit < 0 %}text-danger{% endif %}">
                                     {% if item.pred_stockpile_profit > 0 %}+{% endif %}{{ item.pred_stockpile_profit }}
                                 </span>
-                                （信心 {{ (item.pred_confidence*100)|int }}%）
+                                <br>(D+{{ item.fr_pred_max_offset }}，信心 {{ (item.pred_confidence*100)|int }}%)
                             </small>
                         {% endif %}
                     </td>

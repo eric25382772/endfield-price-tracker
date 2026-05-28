@@ -73,16 +73,58 @@ def _attach_forecast(rows, region, current_date, hist_cache):
     fr_hist = {r['item_id']: get_friend_max_price_history(r['item_id'], days=60) for r in rows}
     hist_cache[region] = {'my': my_hist, 'fr': fr_hist}
     for r in rows:
-        my_f = predict_series(my_hist[r['item_id']], n_future=1, from_date=current_date,
+        my_f = predict_series(my_hist[r['item_id']], n_future=7, from_date=current_date,
                               region_history=my_hist)
-        fr_f = predict_series(fr_hist[r['item_id']], n_future=1, from_date=current_date,
+        fr_f = predict_series(fr_hist[r['item_id']], n_future=7, from_date=current_date,
                               region_history=fr_hist)
-        my_pred = my_f['predictions'][0]['predicted'] if my_f['predictions'] else None
-        fr_pred = fr_f['predictions'][0]['predicted'] if fr_f['predictions'] else None
-        r['my_pred'] = my_pred
-        r['fr_pred'] = fr_pred
-        r['pred_profit'] = (fr_pred - my_pred) if (my_pred and fr_pred) else None
+        my_preds = [p['predicted'] for p in my_f['predictions']]  # D+1..D+7
+        fr_preds = [p['predicted'] for p in fr_f['predictions']]
+        r['my_pred'] = my_preds[0] if my_preds else None
+        r['fr_pred'] = fr_preds[0] if fr_preds else None
+        r['pred_profit'] = (r['fr_pred'] - r['my_pred']) if (r['my_pred'] and r['fr_pred']) else None
         r['pred_confidence'] = round(min(my_f['confidence'], fr_f['confidence']), 2)
+        r['my_pred_confidence'] = round(my_f['confidence'], 2)
+        r['fr_pred_confidence'] = round(fr_f['confidence'], 2)
+
+        # v3.2 補：未來 3 天 my 最低（A 建議囤貨用）
+        if my_preds:
+            window = my_preds[:3]
+            r['my_pred_3day_min'] = min(window)
+            r['my_pred_3day_min_offset'] = window.index(min(window)) + 1
+        else:
+            r['my_pred_3day_min'] = None
+            r['my_pred_3day_min_offset'] = None
+
+        # v3.2 補：未來 7 天 fr 最高（B 囤貨持有、C 跨日最佳用）
+        if fr_preds:
+            r['fr_pred_7day_max'] = max(fr_preds)
+            r['fr_pred_7day_max_offset'] = fr_preds.index(max(fr_preds)) + 1
+        else:
+            r['fr_pred_7day_max'] = None
+            r['fr_pred_7day_max_offset'] = None
+
+        # v3.2 補：跨日最佳利潤（C 利潤欄副資訊）
+        # D+0 用今日實際值，D+1..D+7 用預測，窮舉 buy_day <= sell_day
+        my_seq = [r.get('my_price')] + my_preds
+        fr_seq = [r.get('friend_price')] + fr_preds
+        best_profit = None
+        best_buy = best_sell = None
+        for buy_day, my_buy in enumerate(my_seq):
+            if my_buy is None:
+                continue
+            for sell_day in range(buy_day, len(fr_seq)):
+                fr_sell = fr_seq[sell_day]
+                if fr_sell is None:
+                    continue
+                p = fr_sell - my_buy
+                if best_profit is None or p > best_profit:
+                    best_profit = p
+                    best_buy, best_sell = buy_day, sell_day
+        r['cross_day_profit'] = best_profit
+        r['cross_day_buy_offset'] = best_buy
+        r['cross_day_sell_offset'] = best_sell
+        r['cross_day_is_today'] = (best_buy == 0 and best_sell == 0)
+
         # v3.2: 囤貨門檻改用近 30 天我方價格的第 25 百分位（≥ 7 天才算，否則 None → 用舊門檻）
         recent_30 = [p for d, p in my_hist[r['item_id']] if d >= _date_n_days_ago(current_date, 30)]
         if len(recent_30) >= 7:
@@ -138,16 +180,22 @@ def compare():
     valley_quota = get_quota('valley_iv', date)
     wuling_quota = get_quota('wuling', date)
 
-    # v3.2：囤貨也加上「明日好友最高價」預測 + 信心度（用該物品所屬 region 的快取算 drift）
+    # v3.2：囤貨也加上「未來 7 天好友最高價」預測 + 信心度（最佳賣日，用該物品所屬 region 算 drift）
     for s in stockpile:
         iid = s['item_id']
         region_cache = hist_cache.get(s['region'], {}).get('fr', {})
         fr_series = region_cache.get(iid) or get_friend_max_price_history(iid, days=60)
-        fr_f = predict_series(fr_series, n_future=1, from_date=date,
+        fr_f = predict_series(fr_series, n_future=7, from_date=date,
                               region_history=region_cache or {iid: fr_series})
-        fr_pred = fr_f['predictions'][0]['predicted'] if fr_f['predictions'] else None
-        s['fr_pred'] = fr_pred
-        s['pred_stockpile_profit'] = (fr_pred - s['buy_price']) if fr_pred is not None else None
+        fr_preds = [p['predicted'] for p in fr_f['predictions']]
+        if fr_preds:
+            s['fr_pred_max'] = max(fr_preds)
+            s['fr_pred_max_offset'] = fr_preds.index(max(fr_preds)) + 1
+            s['pred_stockpile_profit'] = s['fr_pred_max'] - s['buy_price']
+        else:
+            s['fr_pred_max'] = None
+            s['fr_pred_max_offset'] = None
+            s['pred_stockpile_profit'] = None
         s['pred_confidence'] = fr_f['confidence']
 
     backup_path = Path(__file__).parent / 'data' / f'reset_backup_{date}.json'
