@@ -10,9 +10,11 @@
        - 建議囤貨：my_price <= 該物品近 30 天 P25（資料不足 7 天時 fallback 到 STOCKPILE_THRESHOLD）
     #}
     {% set quota_not_full = (region_quota is none) or (region_quota.remaining < region_max) %}
+    {# v3.2 補：show_wait 加「該物品今日有正利潤 + 同區當日已有基準」前提，避免空白時誤掛 #}
     {% set show_wait = (
-        item.pred_profit is not none
-        and region_top_profit is not none
+        item.profit is not none and item.profit > 0
+        and region_top_profit is not none and region_top_profit > 0
+        and item.pred_profit is not none
         and item.pred_profit > region_top_profit * wait_gain_ratio
         and item.pred_confidence >= wait_min_confidence
         and quota_not_full
@@ -36,19 +38,41 @@
     {% else %}
         <span class="text-muted">-</span>
     {% endif %}
-    {# v3.2 補 A：建議囤貨加「未來 3 天 my 不會更低」前提（信心 < 50% 時退回只看 P25/threshold） #}
+    {# v3.2 補：建議囤貨改 4 條件組合 #}
+    {# 基本：價格在低點（P25 或 fallback 門檻） #}
+    {% set price_in_floor = (
+        (item.stockpile_floor is not none and item.my_price is not none and item.my_price <= item.stockpile_floor)
+        or (item.stockpile_floor is none and item.my_price is not none and item.my_price < stockpile_threshold)
+    ) %}
+    {# 排除必買/可買級：那些今天會買來賣，不必囤 #}
+    {% set not_top_tier = (
+        item.profit is none
+        or (region_top_profit is not none and region_top_profit > 0 and item.profit < region_top_profit * buyable_ratio)
+    ) %}
+    {# 未來 my 不會更低（信心不足時跳過） #}
     {% set future_my_ok = (
         item.my_pred_3day_min is none
         or item.my_pred_confidence < wait_min_confidence
         or (item.my_price is not none and item.my_price <= item.my_pred_3day_min)
     ) %}
-    {% set stockpile_hit = future_my_ok and (
-        (item.stockpile_floor is not none and item.my_price is not none and item.my_price <= item.stockpile_floor)
-        or (item.stockpile_floor is none and item.my_price is not none and item.my_price < stockpile_threshold)
+    {# 未來 friend 預測賣價超過同區今日最高利潤才有囤的意義 #}
+    {% set future_sell_better = (
+        item.fr_pred_7day_max is not none
+        and item.my_price is not none
+        and region_top_profit is not none
+        and item.fr_pred_confidence >= wait_min_confidence
+        and (item.fr_pred_7day_max - item.my_price) > region_top_profit
+    ) %}
+    {# 配額滿：今天不消耗明天 refill 會浪費 → 強制掛 #}
+    {% set quota_full = (region_quota is not none) and (region_quota.remaining >= region_max) %}
+    {% set stockpile_hit = price_in_floor and not_top_tier and (
+        quota_full
+        or (future_my_ok and future_sell_better)
     ) %}
     {% if stockpile_hit %}
+        {% set stockpile_reason %}{% if quota_full %}配額已滿，先消耗{% elif future_sell_better %}未來預測賣 {{ item.fr_pred_7day_max }} - 買 {{ item.my_price }} = +{{ item.fr_pred_7day_max - item.my_price }} > 同區今日最高 +{{ region_top_profit }}{% endif %}{% endset %}
         <br><span class="badge bg-warning text-dark mt-1"
-                 title="{% if item.stockpile_floor is not none %}近 30 天 P25 = {{ item.stockpile_floor }}{% else %}預設門檻 {{ stockpile_threshold }}{% endif %}{% if item.my_pred_3day_min is not none %}；未來 3 天 my 最低預測 = {{ item.my_pred_3day_min }} (D+{{ item.my_pred_3day_min_offset }}){% endif %}">建議囤貨</span>
+                 title="{% if item.stockpile_floor is not none %}近 30 天 P25 = {{ item.stockpile_floor }}{% else %}預設門檻 {{ stockpile_threshold }}{% endif %}；{{ stockpile_reason }}">建議囤貨</span>
     {% endif %}
 {% endmacro %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -169,7 +193,7 @@
                 </tr>
             </thead>
             <tbody>
-                {% for item in valley_comparison %}
+                {% for item in valley_comparison %}{% set region_top_profit = valley_top_profit %}
                 <tr data-item-id="{{ item.item_id }}" class="{% if item.profit is not none and item.profit >= profit_threshold %}table-success{% elif item.profit is not none and item.profit < 0 %}table-danger{% endif %}">
                     <td>
                         {{ item_image(item) }}
@@ -202,18 +226,17 @@
                         {% else %}
                             <span class="text-muted">-</span>
                         {% endif %}
-                        {# v3.2 補 C：跨日最佳利潤（買日 ≠ 今天 或 賣日 ≠ 今天，且 > 今日利潤 + 500，信心度 ≥ 50%） #}
+                        {# v3.2 補：跨日最佳要超過同區今日最高 + 500，信心度 ≥ 50%，且不是今買今賣 #}
                         {% if item.cross_day_profit is not none
                               and not item.cross_day_is_today
-                              and item.profit is not none
-                              and item.cross_day_profit > item.profit + 500
+                              and region_top_profit is not none and region_top_profit > 0
+                              and item.cross_day_profit > region_top_profit + 500
                               and item.my_pred_confidence >= wait_min_confidence
                               and item.fr_pred_confidence >= wait_min_confidence %}
                             <br><small class="text-muted">
                                 跨日最佳：
                                 <span class="text-success">+{{ item.cross_day_profit }}</span>
-                                <br>{% if item.cross_day_buy_offset == 0 %}今天{% else %}D+{{ item.cross_day_buy_offset }}{% endif %} 買
-                                → {% if item.cross_day_sell_offset == 0 %}今天{% else %}D+{{ item.cross_day_sell_offset }}{% endif %} 賣
+                                <br>{{ item.cross_day_buy_date }} 買 → {{ item.cross_day_sell_date }} 賣
                             </small>
                         {% endif %}
                     </td>
@@ -265,7 +288,7 @@
                 </tr>
             </thead>
             <tbody>
-                {% for item in wuling_comparison %}
+                {% for item in wuling_comparison %}{% set region_top_profit = wuling_top_profit %}
                 <tr data-item-id="{{ item.item_id }}" class="{% if item.profit is not none and item.profit >= profit_threshold %}table-success{% elif item.profit is not none and item.profit < 0 %}table-danger{% endif %}">
                     <td>
                         {{ item_image(item) }}
@@ -298,18 +321,17 @@
                         {% else %}
                             <span class="text-muted">-</span>
                         {% endif %}
-                        {# v3.2 補 C：跨日最佳利潤（買日 ≠ 今天 或 賣日 ≠ 今天，且 > 今日利潤 + 500，信心度 ≥ 50%） #}
+                        {# v3.2 補：跨日最佳要超過同區今日最高 + 500，信心度 ≥ 50%，且不是今買今賣 #}
                         {% if item.cross_day_profit is not none
                               and not item.cross_day_is_today
-                              and item.profit is not none
-                              and item.cross_day_profit > item.profit + 500
+                              and region_top_profit is not none and region_top_profit > 0
+                              and item.cross_day_profit > region_top_profit + 500
                               and item.my_pred_confidence >= wait_min_confidence
                               and item.fr_pred_confidence >= wait_min_confidence %}
                             <br><small class="text-muted">
                                 跨日最佳：
                                 <span class="text-success">+{{ item.cross_day_profit }}</span>
-                                <br>{% if item.cross_day_buy_offset == 0 %}今天{% else %}D+{{ item.cross_day_buy_offset }}{% endif %} 買
-                                → {% if item.cross_day_sell_offset == 0 %}今天{% else %}D+{{ item.cross_day_sell_offset }}{% endif %} 賣
+                                <br>{{ item.cross_day_buy_date }} 買 → {{ item.cross_day_sell_date }} 賣
                             </small>
                         {% endif %}
                     </td>

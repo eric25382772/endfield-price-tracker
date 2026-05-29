@@ -124,6 +124,8 @@ def _attach_forecast(rows, region, current_date, hist_cache):
         r['cross_day_buy_offset'] = best_buy
         r['cross_day_sell_offset'] = best_sell
         r['cross_day_is_today'] = (best_buy == 0 and best_sell == 0)
+        r['cross_day_buy_date'] = _fmt_offset(current_date, best_buy)
+        r['cross_day_sell_date'] = _fmt_offset(current_date, best_sell)
 
         # v3.2: 囤貨門檻改用近 30 天我方價格的第 25 百分位（≥ 7 天才算，否則 None → 用舊門檻）
         recent_30 = [p for d, p in my_hist[r['item_id']] if d >= _date_n_days_ago(current_date, 30)]
@@ -136,6 +138,16 @@ def _attach_forecast(rows, region, current_date, hist_cache):
 def _date_n_days_ago(current_date, n):
     from datetime import date, timedelta
     return (date.fromisoformat(current_date) - timedelta(days=n - 1)).isoformat()
+
+
+def _fmt_offset(current_date, offset):
+    """offset=0 → '今天'，offset>0 → MM/DD"""
+    if offset is None:
+        return None
+    if offset == 0:
+        return '今天'
+    from datetime import date, timedelta
+    return (date.fromisoformat(current_date) + timedelta(days=offset)).strftime('%m/%d')
 
 
 @app.route('/compare')
