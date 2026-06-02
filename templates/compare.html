@@ -169,11 +169,19 @@
                 <small class="text-warning ms-1 scan-indicator-text">辨識中…</small>
             </span>
         </h4>
-        {% if valley_best %}
-        <span class="text-success fw-bold">
-            最佳：{{ valley_best.name_cn }} +{{ valley_best.profit }}
-        </span>
-        {% endif %}
+        <div class="d-flex flex-column align-items-end gap-1">
+            {% if valley_best %}
+            <span class="text-success fw-bold">
+                最佳：{{ valley_best.name_cn }} +{{ valley_best.profit }}
+            </span>
+            {% endif %}
+            {% if valley_cross_best %}
+            <span class="text-warning fw-bold small"
+                  title="信心 {{ ((valley_cross_best.my_pred_confidence + valley_cross_best.fr_pred_confidence)/2*100)|int }}%">
+                &#9203; 跨日：{{ valley_cross_best.name_cn }} +{{ valley_cross_best.cross_day_profit }}（{{ valley_cross_best.cross_day_sell_date }} 賣）
+            </span>
+            {% endif %}
+        </div>
     </div>
     <div class="position-relative">
     <div class="scanning-overlay">
@@ -193,7 +201,7 @@
                 </tr>
             </thead>
             <tbody>
-                {% for item in valley_comparison %}{% set region_top_profit = valley_top_profit %}
+                {% for item in valley_comparison %}
                 <tr data-item-id="{{ item.item_id }}" class="{% if item.profit is not none and item.profit >= profit_threshold %}table-success{% elif item.profit is not none and item.profit < 0 %}table-danger{% endif %}">
                     <td>
                         {{ item_image(item) }}
@@ -225,19 +233,6 @@
                             </span>
                         {% else %}
                             <span class="text-muted">-</span>
-                        {% endif %}
-                        {# v3.2 補：跨日最佳要超過同區今日最高 + 500，信心度 ≥ 50%，且不是今買今賣 #}
-                        {% if item.cross_day_profit is not none
-                              and not item.cross_day_is_today
-                              and region_top_profit is not none and region_top_profit > 0
-                              and item.cross_day_profit > region_top_profit + 500
-                              and item.my_pred_confidence >= wait_min_confidence
-                              and item.fr_pred_confidence >= wait_min_confidence %}
-                            <br><small class="text-muted">
-                                跨日最佳：
-                                <span class="text-success">+{{ item.cross_day_profit }}</span>
-                                <br>{{ item.cross_day_buy_date }} 買 → {{ item.cross_day_sell_date }} 賣
-                            </small>
                         {% endif %}
                     </td>
                     <td class="text-center badge-cell">
@@ -264,11 +259,19 @@
                 <small class="text-warning ms-1 scan-indicator-text">辨識中…</small>
             </span>
         </h4>
-        {% if wuling_best %}
-        <span class="text-success fw-bold">
-            最佳：{{ wuling_best.name_cn }} +{{ wuling_best.profit }}
-        </span>
-        {% endif %}
+        <div class="d-flex flex-column align-items-end gap-1">
+            {% if wuling_best %}
+            <span class="text-success fw-bold">
+                最佳：{{ wuling_best.name_cn }} +{{ wuling_best.profit }}
+            </span>
+            {% endif %}
+            {% if wuling_cross_best %}
+            <span class="text-warning fw-bold small"
+                  title="信心 {{ ((wuling_cross_best.my_pred_confidence + wuling_cross_best.fr_pred_confidence)/2*100)|int }}%">
+                &#9203; 跨日：{{ wuling_cross_best.name_cn }} +{{ wuling_cross_best.cross_day_profit }}（{{ wuling_cross_best.cross_day_sell_date }} 賣）
+            </span>
+            {% endif %}
+        </div>
     </div>
     <div class="position-relative">
     <div class="scanning-overlay">
@@ -288,7 +291,7 @@
                 </tr>
             </thead>
             <tbody>
-                {% for item in wuling_comparison %}{% set region_top_profit = wuling_top_profit %}
+                {% for item in wuling_comparison %}
                 <tr data-item-id="{{ item.item_id }}" class="{% if item.profit is not none and item.profit >= profit_threshold %}table-success{% elif item.profit is not none and item.profit < 0 %}table-danger{% endif %}">
                     <td>
                         {{ item_image(item) }}
@@ -320,19 +323,6 @@
                             </span>
                         {% else %}
                             <span class="text-muted">-</span>
-                        {% endif %}
-                        {# v3.2 補：跨日最佳要超過同區今日最高 + 500，信心度 ≥ 50%，且不是今買今賣 #}
-                        {% if item.cross_day_profit is not none
-                              and not item.cross_day_is_today
-                              and region_top_profit is not none and region_top_profit > 0
-                              and item.cross_day_profit > region_top_profit + 500
-                              and item.my_pred_confidence >= wait_min_confidence
-                              and item.fr_pred_confidence >= wait_min_confidence %}
-                            <br><small class="text-muted">
-                                跨日最佳：
-                                <span class="text-success">+{{ item.cross_day_profit }}</span>
-                                <br>{{ item.cross_day_buy_date }} 買 → {{ item.cross_day_sell_date }} 賣
-                            </small>
                         {% endif %}
                     </td>
                     <td class="text-center badge-cell">
@@ -401,7 +391,7 @@
                             ) %}
                             {% if wait_sell %}
                                 <br><span class="badge bg-warning text-dark" title="今日 +{{ item.stockpile_profit }}，未來 7 天最高預測 +{{ item.pred_stockpile_profit }}">
-                                    &#9203; 未來更高 (D+{{ item.fr_pred_max_offset }})
+                                    &#9203; 未來更高 ({{ item.fr_pred_max_date }})
                                 </span>
                             {% elif item.stockpile_profit >= profit_threshold %}
                                 <br><span class="badge bg-success">可賣</span>
@@ -415,7 +405,7 @@
                                 <span class="{% if item.pred_stockpile_profit > 0 %}text-success{% elif item.pred_stockpile_profit < 0 %}text-danger{% endif %}">
                                     {% if item.pred_stockpile_profit > 0 %}+{% endif %}{{ item.pred_stockpile_profit }}
                                 </span>
-                                <br>(D+{{ item.fr_pred_max_offset }}，信心 {{ (item.pred_confidence*100)|int }}%)
+                                <br>({{ item.fr_pred_max_date }}，信心 {{ (item.pred_confidence*100)|int }}%)
                             </small>
                         {% endif %}
                     </td>

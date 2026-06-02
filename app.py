@@ -103,29 +103,23 @@ def _attach_forecast(rows, region, current_date, hist_cache):
             r['fr_pred_7day_max'] = None
             r['fr_pred_7day_max_offset'] = None
 
-        # v3.2 補：跨日最佳利潤（C 利潤欄副資訊）
-        # D+0 用今日實際值，D+1..D+7 用預測，窮舉 buy_day <= sell_day
-        my_seq = [r.get('my_price')] + my_preds
-        fr_seq = [r.get('friend_price')] + fr_preds
-        best_profit = None
-        best_buy = best_sell = None
-        for buy_day, my_buy in enumerate(my_seq):
-            if my_buy is None:
-                continue
-            for sell_day in range(buy_day, len(fr_seq)):
-                fr_sell = fr_seq[sell_day]
-                if fr_sell is None:
-                    continue
-                p = fr_sell - my_buy
-                if best_profit is None or p > best_profit:
-                    best_profit = p
-                    best_buy, best_sell = buy_day, sell_day
-        r['cross_day_profit'] = best_profit
-        r['cross_day_buy_offset'] = best_buy
-        r['cross_day_sell_offset'] = best_sell
-        r['cross_day_is_today'] = (best_buy == 0 and best_sell == 0)
-        r['cross_day_buy_date'] = _fmt_offset(current_date, best_buy)
-        r['cross_day_sell_date'] = _fmt_offset(current_date, best_sell)
+        # v3.2 補：跨日最佳 = 今天買 + 未來某天賣 (D+1..D+7) → friend 預測最高的那天
+        my_today = r.get('my_price')
+        if my_today is not None and fr_preds:
+            candidates = [(d + 1, fr_preds[d]) for d in range(len(fr_preds)) if fr_preds[d] is not None]
+            if candidates:
+                best_sell, best_fr = max(candidates, key=lambda x: x[1])
+                r['cross_day_profit'] = best_fr - my_today
+                r['cross_day_sell_offset'] = best_sell
+                r['cross_day_sell_date'] = _fmt_offset(current_date, best_sell)
+            else:
+                r['cross_day_profit'] = None
+                r['cross_day_sell_offset'] = None
+                r['cross_day_sell_date'] = None
+        else:
+            r['cross_day_profit'] = None
+            r['cross_day_sell_offset'] = None
+            r['cross_day_sell_date'] = None
 
         # v3.2: 囤貨門檻改用近 30 天我方價格的第 25 百分位（≥ 7 天才算，否則 None → 用舊門檻）
         recent_30 = [p for d, p in my_hist[r['item_id']] if d >= _date_n_days_ago(current_date, 30)]
@@ -182,6 +176,21 @@ def compare():
     valley_best = pick_best(valley_comparison)
     wuling_best = pick_best(wuling_comparison)
 
+    # v3.2 補：region 級的「跨日最佳」 — 同區內 cross_day_profit 最高且 > region_top + 500 + 信心 ≥ 0.5 的單一物品
+    def pick_cross_best(rows, region_top):
+        if not region_top:
+            return None
+        floor = region_top + 500
+        candidates = [r for r in rows
+                      if r.get('cross_day_profit') is not None
+                      and r['cross_day_profit'] > floor
+                      and r.get('my_pred_confidence', 0) >= WAIT_MIN_CONFIDENCE
+                      and r.get('fr_pred_confidence', 0) >= WAIT_MIN_CONFIDENCE]
+        return max(candidates, key=lambda x: x['cross_day_profit']) if candidates else None
+
+    valley_cross_best = pick_cross_best(valley_comparison, valley_best['profit'] if valley_best else 0)
+    wuling_cross_best = pick_cross_best(wuling_comparison, wuling_best['profit'] if wuling_best else 0)
+
     # 跨區 Top 5 排行
     all_items = valley_comparison + wuling_comparison
     profitable = [r for r in all_items if r['profit'] is not None and r['profit'] > 0]
@@ -203,10 +212,12 @@ def compare():
         if fr_preds:
             s['fr_pred_max'] = max(fr_preds)
             s['fr_pred_max_offset'] = fr_preds.index(max(fr_preds)) + 1
+            s['fr_pred_max_date'] = _fmt_offset(date, s['fr_pred_max_offset'])
             s['pred_stockpile_profit'] = s['fr_pred_max'] - s['buy_price']
         else:
             s['fr_pred_max'] = None
             s['fr_pred_max_offset'] = None
+            s['fr_pred_max_date'] = None
             s['pred_stockpile_profit'] = None
         s['pred_confidence'] = fr_f['confidence']
 
@@ -238,6 +249,8 @@ def compare():
                            wuling_best_id=(wuling_best['item_id'] if wuling_best else None),
                            valley_top_profit=(valley_best['profit'] if valley_best else 0),
                            wuling_top_profit=(wuling_best['profit'] if wuling_best else 0),
+                           valley_cross_best=valley_cross_best,
+                           wuling_cross_best=wuling_cross_best,
                            current_date=current_date,
                            selected_date=selected_date,
                            available_dates=available,
