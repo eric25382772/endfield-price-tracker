@@ -18,7 +18,7 @@ VALLEY_IV_GOODS = [
     {"name_cn": "硬頭殼安全帽貨組", "name_en": "Hard Shell Helmet", "base_price": 2000, "region": "valley_iv"},
 ]
 
-# 武陵地區物品 (Wuling) - 每日購買配額 +140，上限 280（2天滿，2026-05-17 起）
+# 武陵地區物品 (Wuling) - 每日購買配額 +170，上限 340（2天滿，2026-06-05 起；7+2 佈局）
 WULING_GOODS = [
     {"name_cn": "武俠電影貨組", "name_en": "Wuxia Movies", "base_price": 2000, "region": "wuling"},
     {"name_cn": "冬蟲夏筍貨組", "name_en": "Cordyceps Bamboo Shoots", "base_price": 2000, "region": "wuling"},
@@ -28,13 +28,14 @@ WULING_GOODS = [
     {"name_cn": "息壤淨水濾心貨組", "name_en": "Xirang Water Filter Pack", "base_price": 2000, "region": "wuling", "from": "2026-04-17"},
     {"name_cn": "清波筏貨組", "name_en": "Qingbo Raft Pack", "base_price": 2000, "region": "wuling", "from": "2026-04-17"},
     {"name_cn": "息壤色煙火貨組", "name_en": "Xirang Color Fireworks", "base_price": 2000, "region": "wuling", "from": "2026-05-17"},
+    {"name_cn": "飛天迎賓員貨組", "name_en": "Flying Greeter Pack", "base_price": 2000, "region": "wuling", "from": "2026-06-05"},
 ]
 
 # 全部物品
 ELASTIC_GOODS = VALLEY_IV_GOODS + WULING_GOODS
 
 # 購買配額歷史（依遊戲版本變動）
-# 武陵：65/130 → 2026-04-17 改 125/250 → 2026-05-17 改 140/280；谷地自始未變
+# 武陵：65/130 → 2026-04-17 改 125/250 → 2026-05-17 改 140/280 → 2026-06-05 改 170/340；谷地自始未變
 REGION_QUOTA_HISTORY = {
     'valley_iv': [
         {'from': '2000-01-01', 'daily': 320, 'max': 960, 'fill_days': 3},
@@ -43,6 +44,7 @@ REGION_QUOTA_HISTORY = {
         {'from': '2000-01-01', 'daily': 65,  'max': 130, 'fill_days': 2},
         {'from': '2026-04-17', 'daily': 125, 'max': 250, 'fill_days': 2},
         {'from': '2026-05-17', 'daily': 140, 'max': 280, 'fill_days': 2},
+        {'from': '2026-06-05', 'daily': 170, 'max': 340, 'fill_days': 2},
     ],
 }
 

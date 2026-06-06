@@ -3,7 +3,7 @@
 根據遊戲實際畫面佈局校正。
 
 谷地: 7+5 佈局 (第一行7個, 第二行5個)
-武陵: v3.0 起 7+1 佈局 (v2.0 為 1 行 7 個，5/17 改版新增 item_20 息壤色煙火)
+武陵: v4.0 起 7+2 佈局 (v3.0 為 7+1，6/05 改版新增 item_21 飛天迎賓員)
       遊戲畫面順序每日隨機，跑工具前依當天截圖更新 WULING_SCREEN_ORDER_ROW1/ROW2
 
 注意：本腳本只處理市場小卡。好友參考圖 (data/item_images/friend/) 是固定資產，
@@ -24,10 +24,10 @@ STATIC_DIR = os.path.join(os.path.dirname(__file__), '..', 'static', 'images', '
 # ========================================
 
 # 武陵：遊戲畫面從左到右、上到下的順序 → item_id（每日隨機，跑工具前依當天截圖更新）
-# item_id 13-20 (database: 武俠13, 冬蟲14, 武陵凍梨15, 岳研16, 天師龍17, 息壤18, 清波19, 息壤色煙火20)
-# 2026-05-17 截圖順序: row1 = 武俠, 天師龍, 武陵凍梨, 清波, 岳研, 冬蟲, 息壤色煙火; row2 = 息壤
-WULING_SCREEN_ORDER_ROW1 = [13, 17, 15, 19, 16, 14, 20]
-WULING_SCREEN_ORDER_ROW2 = [18]
+# item_id 13-21 (database: 武俠13, 冬蟲14, 武陵凍梨15, 岳研16, 天師龍17, 息壤淨水18, 清波19, 息壤色煙火20, 飛天迎賓員21)
+# 2026-06-06 截圖順序: row1 = 天師龍, 飛天迎賓員, 武俠, 息壤色煙火, 息壤淨水, 清波, 武陵凍梨; row2 = 岳研, 冬蟲
+WULING_SCREEN_ORDER_ROW1 = [17, 21, 13, 20, 18, 19, 15]
+WULING_SCREEN_ORDER_ROW2 = [16, 14]
 
 # 四號谷地：遊戲畫面從左到右、上到下
 # item_id 1-12, 遊戲順序 = 資料庫順序
@@ -50,7 +50,7 @@ def save_debug_grid(img, cards, labels, output_name):
 
 
 def extract_wuling(screenshot_path):
-    """Extract Wuling item images (v3.0 起為 7+1 兩行佈局)."""
+    """Extract Wuling item images (v4.0 起為 7+2 兩行佈局)."""
     img = cv2.imread(screenshot_path)
     if img is None:
         print(f"Cannot read {screenshot_path}")
@@ -60,8 +60,9 @@ def extract_wuling(screenshot_path):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     # v3.0: 沿用谷地 7+5 佈局的 x/y 座標（武陵單行時期的 y=680-920 已不適用）
+    # v4.0: row2 由 1 格擴為 2 格
     row1_x_starts = [143, 447, 751, 1055, 1359, 1663, 1967]
-    row2_x_starts = [143]
+    row2_x_starts = [143, 447]
     card_width = 270
     row1_y = (420, 660)
     row2_y = (850, 1090)

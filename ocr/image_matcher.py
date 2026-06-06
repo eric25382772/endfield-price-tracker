@@ -24,7 +24,7 @@ VALLEY_CARD_POSITIONS = {
     },
 }
 
-# 武陵: 1行7格 + 第2行1格 (v3.0，2026-05-17 起新增 item_20)
+# 武陵: 1行7格 + 第2行2格 (v4.0，2026-06-05 起新增 item_21 飛天迎賓員)
 WULING_CARD_POSITIONS = {
     'row1': {
         'x_starts': [143, 447, 751, 1055, 1359, 1663, 1967],
@@ -32,7 +32,7 @@ WULING_CARD_POSITIONS = {
         'y_top': 420, 'y_bottom': 660,
     },
     'row2': {
-        'x_starts': [143],
+        'x_starts': [143, 447],
         'card_width': 270,
         'y_top': 850, 'y_bottom': 1090,
     },
@@ -43,12 +43,12 @@ _ref_images = {}
 
 
 def load_reference_images():
-    """載入所有參考圖片 (item_1.png ~ item_20.png)"""
+    """載入所有參考圖片 (item_1.png ~ item_21.png)"""
     global _ref_images
     if _ref_images:
         return _ref_images
 
-    for i in range(1, 21):
+    for i in range(1, 22):
         path = os.path.join(REF_DIR, f'item_{i}.png')
         if os.path.exists(path):
             img = cv2.imread(path)
@@ -177,7 +177,7 @@ def identify_items_by_image(screenshot_path, region):
     if region == 'valley_iv':
         region_ids = list(range(1, 13))  # item 1-12
     else:
-        region_ids = list(range(13, 21))  # item 13-20
+        region_ids = list(range(13, 22))  # item 13-21
 
     results = []
     used_ids = set()
@@ -232,7 +232,7 @@ def load_friend_reference_images():
         os.makedirs(FRIEND_REF_DIR, exist_ok=True)
         return _friend_ref_images
 
-    for i in range(1, 21):
+    for i in range(1, 22):
         path = os.path.join(FRIEND_REF_DIR, f'item_{i}.png')
         if os.path.exists(path):
             img = cv2.imread(path)
@@ -404,11 +404,11 @@ def identify_friend_item(screenshot_path, region_hint=None):
     if region_hint == 'valley_iv':
         region_ids = list(range(1, 13))
     elif region_hint == 'wuling':
-        region_ids = list(range(13, 21))
+        region_ids = list(range(13, 22))
 
     # 優先用好友參考圖 (同類型比對，準確度高)
     friend_refs = load_friend_reference_images()
-    available_friend = [i for i in (region_ids or range(1, 21)) if i in friend_refs]
+    available_friend = [i for i in (region_ids or range(1, 22)) if i in friend_refs]
 
     if len(available_friend) >= 3:
         print(f"  使用好友參考圖比對 ({len(available_friend)} 張)")
@@ -429,7 +429,7 @@ def identify_friend_item(screenshot_path, region_hint=None):
     if not region and item_id:
         if 1 <= item_id <= 12:
             region = 'valley_iv'
-        elif 13 <= item_id <= 20:
+        elif 13 <= item_id <= 21:
             region = 'wuling'
 
     print(f"  好友畫面物品辨識: item_{item_id} (分數: {score:.3f})")
