@@ -6,6 +6,7 @@ from flask import Flask, render_template, request, redirect, url_for, flash, jso
 from config import (
     REGIONS, get_game_date, PROFIT_THRESHOLD, STOCKPILE_THRESHOLD,
     WAIT_GAIN_RATIO, WAIT_MIN_CONFIDENCE, BUYABLE_RATIO,
+    SELL_RISING_MARGIN, DATA_THIN_CONFIDENCE,
 )
 from data.models import init_db
 from data.items import REGION_QUOTA, get_region_quota, get_visible_item_names
@@ -85,6 +86,9 @@ def _attach_forecast(rows, region, current_date, hist_cache):
         r['pred_confidence'] = round(min(my_f['confidence'], fr_f['confidence']), 2)
         r['my_pred_confidence'] = round(my_f['confidence'], 2)
         r['fr_pred_confidence'] = round(fr_f['confidence'], 2)
+        # v4.0.1：樣本太少（fallback 或信心過低）→ 標「資料不足，僅供參考」
+        r['pred_thin'] = (my_f['data_insufficient'] or fr_f['data_insufficient']
+                          or r['pred_confidence'] < DATA_THIN_CONFIDENCE)
 
         # v3.2 補：未來 3 天 my 最低（A 建議囤貨用）
         if my_preds:
@@ -127,6 +131,40 @@ def _attach_forecast(rows, region, current_date, hist_cache):
             r['stockpile_floor'] = int(statistics.quantiles(recent_30, n=4)[0])
         else:
             r['stockpile_floor'] = None
+
+
+def _mark_stockpile(rows, region_top_profit, quota_row, region_max):
+    """每區只挑一個「建議囤貨」：合格物品中買入價最低的那個。
+    in-place 設 stockpile_eligible（每筆，給「別買」讓位用）/ stockpile_pick（每區一個）/ stockpile_reason。
+    合格定義同前：買價在低點 且（配額滿 或（現在最便宜 且 未來賣更高））。
+    """
+    quota_full = bool(quota_row and region_max and quota_row.get('remaining', 0) >= region_max)
+    eligible = []
+    for r in rows:
+        myp = r.get('my_price')
+        floor = r.get('stockpile_floor')
+        price_in_floor = ((floor is not None and myp is not None and myp <= floor)
+                          or (floor is None and myp is not None and myp < STOCKPILE_THRESHOLD))
+        future_my_ok = (r.get('my_pred_3day_min') is None
+                        or r.get('my_pred_confidence', 0) < WAIT_MIN_CONFIDENCE
+                        or (myp is not None and myp <= r['my_pred_3day_min']))
+        future_sell_better = (r.get('fr_pred_7day_max') is not None and myp is not None
+                              and region_top_profit is not None
+                              and r.get('fr_pred_confidence', 0) >= WAIT_MIN_CONFIDENCE
+                              and (r['fr_pred_7day_max'] - myp) > region_top_profit)
+        r['stockpile_eligible'] = bool(price_in_floor and (quota_full or (future_my_ok and future_sell_better)))
+        r['stockpile_pick'] = False
+        r['stockpile_reason'] = None
+        if r['stockpile_eligible']:
+            eligible.append(r)
+    if eligible:
+        pick = min(eligible, key=lambda r: r['my_price'])
+        pick['stockpile_pick'] = True
+        if quota_full:
+            pick['stockpile_reason'] = '配額已滿，先消耗'
+        else:
+            pick['stockpile_reason'] = (f"未來預測賣 {pick['fr_pred_7day_max']} - 買 {pick['my_price']} "
+                                        f"= +{pick['fr_pred_7day_max'] - pick['my_price']} > 同區今日最高 +{region_top_profit}")
 
 
 def _date_n_days_ago(current_date, n):
@@ -221,6 +259,14 @@ def compare():
             s['pred_stockpile_profit'] = None
         s['pred_confidence'] = fr_f['confidence']
 
+        # v4.1 峰值感知：D+1 仍高於今日實際好友價 → 還在漲，建議持有；否則已達高點 → 可賣
+        today_fr = s.get('friend_best_price')
+        d1 = fr_preds[0] if fr_preds else None
+        s['still_rising'] = bool(
+            today_fr and d1 and fr_f['confidence'] >= WAIT_MIN_CONFIDENCE
+            and d1 > today_fr * SELL_RISING_MARGIN
+        )
+
     backup_path = Path(__file__).parent / 'data' / f'reset_backup_{date}.json'
     has_backup = backup_path.exists()
 
@@ -228,6 +274,12 @@ def compare():
         'valley_iv': get_region_quota('valley_iv', date),
         'wuling':    get_region_quota('wuling',    date),
     }
+
+    # v4.0.1：每區只挑一個建議囤貨（買入價最低的合格物品）
+    _mark_stockpile(valley_comparison, valley_best['profit'] if valley_best else 0,
+                    valley_quota, (region_quota_for_date['valley_iv'] or {}).get('max'))
+    _mark_stockpile(wuling_comparison, wuling_best['profit'] if wuling_best else 0,
+                    wuling_quota, (region_quota_for_date['wuling'] or {}).get('max'))
 
     return render_template('compare.html',
                            valley_comparison=valley_comparison,

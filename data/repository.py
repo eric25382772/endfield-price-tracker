@@ -24,12 +24,12 @@ def upsert_price(item_id, market_price, game_date=None, source='manual'):
         game_date = get_game_date()
     conn = get_db()
     conn.execute("""
-        INSERT INTO prices (item_id, market_price, game_date, source)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO prices (item_id, market_price, game_date, source, recorded_at)
+        VALUES (?, ?, ?, ?, datetime('now','localtime'))
         ON CONFLICT(item_id, game_date)
         DO UPDATE SET market_price = excluded.market_price,
                       source = excluded.source,
-                      recorded_at = CURRENT_TIMESTAMP
+                      recorded_at = datetime('now','localtime')
     """, (item_id, market_price, game_date, source))
     conn.commit()
     conn.close()
@@ -41,12 +41,12 @@ def upsert_quota(region, remaining, max_quota, game_date=None):
         game_date = get_game_date()
     conn = get_db()
     conn.execute("""
-        INSERT INTO quotas (region, remaining, max_quota, game_date)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO quotas (region, remaining, max_quota, game_date, recorded_at)
+        VALUES (?, ?, ?, ?, datetime('now','localtime'))
         ON CONFLICT(region, game_date)
         DO UPDATE SET remaining = excluded.remaining,
                       max_quota = excluded.max_quota,
-                      recorded_at = CURRENT_TIMESTAMP
+                      recorded_at = datetime('now','localtime')
     """, (region, remaining, max_quota, game_date))
     conn.commit()
     conn.close()
@@ -99,12 +99,12 @@ def upsert_friend_price(item_id, market_price, friend_name='好友', game_date=N
         game_date = get_game_date()
     conn = get_db()
     conn.execute("""
-        INSERT INTO friend_prices (item_id, friend_name, market_price, game_date, source)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO friend_prices (item_id, friend_name, market_price, game_date, source, recorded_at)
+        VALUES (?, ?, ?, ?, ?, datetime('now','localtime'))
         ON CONFLICT(item_id, friend_name, game_date)
         DO UPDATE SET market_price = excluded.market_price,
                       source = excluded.source,
-                      recorded_at = CURRENT_TIMESTAMP
+                      recorded_at = datetime('now','localtime')
     """, (item_id, friend_name, market_price, game_date, source))
     conn.commit()
     conn.close()
@@ -241,11 +241,11 @@ def upsert_stockpile(item_id, buy_price, region, game_date=None):
         game_date = get_game_date()
     conn = get_db()
     conn.execute("""
-        INSERT INTO stockpile (item_id, buy_price, quantity, game_date_bought, region)
-        VALUES (?, ?, 1, ?, ?)
+        INSERT INTO stockpile (item_id, buy_price, quantity, game_date_bought, region, recorded_at)
+        VALUES (?, ?, 1, ?, ?, datetime('now','localtime'))
         ON CONFLICT(item_id, game_date_bought)
         DO UPDATE SET buy_price = excluded.buy_price,
-                      recorded_at = CURRENT_TIMESTAMP
+                      recorded_at = datetime('now','localtime')
     """, (item_id, buy_price, game_date, region))
     conn.commit()
     conn.close()
@@ -361,13 +361,13 @@ def restore_snapshot(snapshot):
     conn = get_db()
     for s in snapshot.get('stockpile', []):
         conn.execute("""
-            INSERT INTO stockpile (item_id, buy_price, quantity, game_date_bought, region, sold)
-            VALUES (?, ?, 1, ?, ?, ?)
+            INSERT INTO stockpile (item_id, buy_price, quantity, game_date_bought, region, sold, recorded_at)
+            VALUES (?, ?, 1, ?, ?, ?, datetime('now','localtime'))
             ON CONFLICT(item_id, game_date_bought)
             DO UPDATE SET buy_price = excluded.buy_price,
                           region = excluded.region,
                           sold = excluded.sold,
-                          recorded_at = CURRENT_TIMESTAMP
+                          recorded_at = datetime('now','localtime')
         """, (s['item_id'], s['buy_price'], game_date, s.get('region'), s.get('sold', 0)))
     conn.commit()
     conn.close()

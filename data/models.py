@@ -34,7 +34,7 @@ def init_db():
             item_id INTEGER NOT NULL REFERENCES items(id),
             market_price INTEGER NOT NULL,
             game_date TEXT NOT NULL,
-            recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            recorded_at TIMESTAMP DEFAULT (datetime('now','localtime')),
             source TEXT DEFAULT 'ocr',
             UNIQUE(item_id, game_date)
         )
@@ -48,7 +48,7 @@ def init_db():
             friend_name TEXT NOT NULL DEFAULT '好友',
             market_price INTEGER NOT NULL,
             game_date TEXT NOT NULL,
-            recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            recorded_at TIMESTAMP DEFAULT (datetime('now','localtime')),
             source TEXT DEFAULT 'ocr',
             UNIQUE(item_id, friend_name, game_date)
         )
@@ -64,7 +64,7 @@ def init_db():
             game_date_bought TEXT NOT NULL,
             region TEXT NOT NULL,
             sold INTEGER NOT NULL DEFAULT 0,
-            recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            recorded_at TIMESTAMP DEFAULT (datetime('now','localtime')),
             UNIQUE(item_id, game_date_bought)
         )
     """)
@@ -77,7 +77,7 @@ def init_db():
             remaining INTEGER NOT NULL,
             max_quota INTEGER NOT NULL,
             game_date TEXT NOT NULL,
-            recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            recorded_at TIMESTAMP DEFAULT (datetime('now','localtime')),
             UNIQUE(region, game_date)
         )
     """)

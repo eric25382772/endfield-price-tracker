@@ -41,8 +41,14 @@ STOCKPILE_THRESHOLD = 1400   # 自己價格 < 1400 建議囤貨（低於基準30
 WAIT_GAIN_RATIO = 1.2        # 明日預測比今日高 20% 才值得等
 WAIT_MIN_CONFIDENCE = 0.5    # 預測信心度門檻
 
+# v4.1 峰值感知賣出：D+1 預測 > 今日實際好友價 × 此值才算「還在漲」，否則視為已達高點 → 可賣
+SELL_RISING_MARGIN = 1.03
+
 # v3.2 可買徽章：利潤 >= 同區最高利潤 × BUYABLE_RATIO 才算「次優選擇」
 BUYABLE_RATIO = 0.7
+
+# v4.0.1 資料不足警告：預測信心度低於此值（樣本太少）顯示「僅供參考」
+DATA_THIN_CONFIDENCE = 0.4
 
 # Regions
 REGIONS = {
