@@ -130,6 +130,13 @@
 
 {% set valley_has_my = valley_comparison|selectattr('my_price')|list|length > 0 %}
 {% set wuling_has_my = wuling_comparison|selectattr('my_price')|list|length > 0 %}
+
+{# 地區分頁：一次只顯示一個地區的表格，記住上次看的地區；掃到哪區自動跳哪區 #}
+<div class="ef-rtabs" id="compare-region-tabs">
+    <div class="ef-rtab on" data-region="valley_iv"><span class="ef-rdot valley"></span>四號谷地</div>
+    <div class="ef-rtab" data-region="wuling"><span class="ef-rdot wuling"></span>武陵</div>
+</div>
+
 {# ===== 四號谷地比對 ===== #}
 <div class="region-section mb-4" data-region="valley_iv">
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
@@ -152,7 +159,7 @@
             {% if valley_cross_best %}
             <span class="text-warning fw-bold small"
                   title="信心 {{ ((valley_cross_best.my_pred_confidence + valley_cross_best.fr_pred_confidence)/2*100)|int }}%">
-                &#9203; 跨日：{{ valley_cross_best.name_cn }} +{{ valley_cross_best.cross_day_profit }}（{{ valley_cross_best.cross_day_sell_date }} 賣）
+                &#128338; 今天買 → {{ valley_cross_best.cross_day_sell_date }} 賣：{{ valley_cross_best.name_cn }} +{{ valley_cross_best.cross_day_profit }}
             </span>
             {% endif %}
         </div>
@@ -192,13 +199,16 @@
                     <td class="text-center editable-cell"
                         data-type="friend_price"
                         data-item-id="{{ item.item_id }}"
-                        data-friend-name="{{ item.best_friend or '好友' }}"
+                        data-friend-name="{{ item.best_friend_raw or '好友' }}"
                         data-game-date="{{ selected_date or current_date }}">
                         <span class="cell-value">{% if item.friend_price is not none %}{{ item.friend_price }}{% else %}-{% endif %}</span>
                         <button class="btn btn-sm edit-btn ms-1" title="編輯">&#9998;</button>
                     </td>
-                    <td class="text-center">
-                        <small>{{ item.best_friend or '-' }}</small>
+                    <td class="text-center friend-name-cell" data-raw-friend="{{ item.best_friend_raw or '' }}">
+                        <span class="fn-value"><small>{{ item.best_friend or '-' }}</small></span>
+                        {% if item.best_friend_raw %}
+                        <button class="btn btn-sm edit-btn fn-edit-btn" title="修正名稱">&#9998;</button>
+                        {% endif %}
                     </td>
                     <td class="text-center fw-bold profit-cell">
                         {% if item.profit is not none %}
@@ -242,7 +252,7 @@
             {% if wuling_cross_best %}
             <span class="text-warning fw-bold small"
                   title="信心 {{ ((wuling_cross_best.my_pred_confidence + wuling_cross_best.fr_pred_confidence)/2*100)|int }}%">
-                &#9203; 跨日：{{ wuling_cross_best.name_cn }} +{{ wuling_cross_best.cross_day_profit }}（{{ wuling_cross_best.cross_day_sell_date }} 賣）
+                &#128338; 今天買 → {{ wuling_cross_best.cross_day_sell_date }} 賣：{{ wuling_cross_best.name_cn }} +{{ wuling_cross_best.cross_day_profit }}
             </span>
             {% endif %}
         </div>
@@ -282,13 +292,16 @@
                     <td class="text-center editable-cell"
                         data-type="friend_price"
                         data-item-id="{{ item.item_id }}"
-                        data-friend-name="{{ item.best_friend or '好友' }}"
+                        data-friend-name="{{ item.best_friend_raw or '好友' }}"
                         data-game-date="{{ selected_date or current_date }}">
                         <span class="cell-value">{% if item.friend_price is not none %}{{ item.friend_price }}{% else %}-{% endif %}</span>
                         <button class="btn btn-sm edit-btn ms-1" title="編輯">&#9998;</button>
                     </td>
-                    <td class="text-center">
-                        <small>{{ item.best_friend or '-' }}</small>
+                    <td class="text-center friend-name-cell" data-raw-friend="{{ item.best_friend_raw or '' }}">
+                        <span class="fn-value"><small>{{ item.best_friend or '-' }}</small></span>
+                        {% if item.best_friend_raw %}
+                        <button class="btn btn-sm edit-btn fn-edit-btn" title="修正名稱">&#9998;</button>
+                        {% endif %}
                     </td>
                     <td class="text-center fw-bold profit-cell">
                         {% if item.profit is not none %}
@@ -397,6 +410,30 @@
 <script>
     window.PROFIT_THRESHOLD = {{ profit_threshold }};
     window.STOCKPILE_THRESHOLD = {{ stockpile_threshold }};
+</script>
+<script>
+// 地區分頁：切換 / 記憶上次地區 / 掃描時自動跳轉（setCompareRegion 由 base.html 輪詢呼叫）
+(function () {
+    var KEY = 'compare_region';
+    var tabs = document.getElementById('compare-region-tabs');
+    if (!tabs) return;
+    var sections = {};
+    document.querySelectorAll('.region-section[data-region]').forEach(function (s) { sections[s.dataset.region] = s; });
+    function show(region) {
+        if (!sections[region]) region = 'valley_iv';
+        Object.keys(sections).forEach(function (r) { sections[r].style.display = (r === region) ? '' : 'none'; });
+        tabs.querySelectorAll('.ef-rtab').forEach(function (t) { t.classList.toggle('on', t.dataset.region === region); });
+        try { localStorage.setItem(KEY, region); } catch (e) {}
+        window._compareRegion = region;
+    }
+    window.setCompareRegion = show;
+    tabs.querySelectorAll('.ef-rtab').forEach(function (t) {
+        t.addEventListener('click', function () { show(t.dataset.region); });
+    });
+    var saved = null;
+    try { saved = localStorage.getItem(KEY); } catch (e) {}
+    show(saved || 'valley_iv');
+})();
 </script>
 <script src="/static/js/inline_edit.js"></script>
 {% endblock %}

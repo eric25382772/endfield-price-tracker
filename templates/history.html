@@ -1,157 +1,134 @@
 {% extends "base.html" %}
 {% block content %}
-<style>
-    .chart-card { height: 100%; }
-    .chart-card .card-body { padding: 0.75rem; }
-    .chart-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }
-    .chart-thumb {
-        width: 44px; height: 44px; object-fit: cover;
-        border-radius: 4px; background: #2a2d35; flex-shrink: 0;
-        border: 1px solid #3a3f4b;
-    }
-    .chart-thumb-fallback {
-        width: 44px; height: 44px; border-radius: 4px;
-        background: #2a2d35; border: 1px solid #3a3f4b; flex-shrink: 0;
-        display: flex; align-items: center; justify-content: center;
-        color: #6c757d; font-size: 0.7rem;
-    }
-    .chart-name { color: #e0e0e0; font-weight: bold; font-size: 0.95rem; line-height: 1.2; }
-    .chart-meta { color: #8a8f99; font-size: 0.75rem; }
-    .chart-canvas-wrap { position: relative; height: 180px; }
-    .empty-note { color: #8a8f99; font-size: 0.9rem; text-align: center; padding: 60px 0; }
-</style>
+<div class="ef-htitle">
+    <h3>歷史走勢</h3>
+    <div class="ef-segbar"><i></i><i></i><i></i></div>
+</div>
+<p class="text-muted mb-2"><span class="ef-label">HISTORY</span> · 我的市場價 vs 好友最高價 · 點上方貨物放大檢視</p>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h3 class="mb-0">歷史走勢 + 預測</h3>
-    <div>
-        <div class="btn-group btn-group-sm me-2" role="group" id="days-group">
-            <button type="button" class="btn btn-outline-primary" data-days="7">7 天</button>
-            <button type="button" class="btn btn-outline-primary" data-days="14">14 天</button>
-            <button type="button" class="btn btn-outline-primary active" data-days="30">30 天</button>
-        </div>
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div class="ef-rtabs mb-0" id="region-tabs">
+        <div class="ef-rtab on" data-region="valley_iv">四號谷地</div>
+        <div class="ef-rtab" data-region="wuling">武陵</div>
+    </div>
+    <div class="btn-group btn-group-sm" id="days-group">
+        <button type="button" class="btn btn-outline-secondary" data-days="7">7 天</button>
+        <button type="button" class="btn btn-outline-secondary" data-days="14">14 天</button>
+        <button type="button" class="btn btn-outline-secondary active" data-days="30">30 天</button>
     </div>
 </div>
 
-<ul class="nav nav-tabs mb-3" id="region-tabs">
-    <li class="nav-item"><a class="nav-link active" data-region="valley_iv" href="#">四號谷地</a></li>
-    <li class="nav-item"><a class="nav-link" data-region="wuling" href="#">武陵</a></li>
-</ul>
-
-<div id="charts-grid" class="row g-3"></div>
+<div class="ef-selector-wrap">
+    <button type="button" class="ef-arrow ef-arrow-l" aria-label="上一個">&#8249;</button>
+    <div class="ef-selector" id="selector"></div>
+    <button type="button" class="ef-arrow ef-arrow-r" aria-label="下一個">&#8250;</button>
+</div>
+<div id="focus-area"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 (function () {
-    let currentRegion = 'valley_iv';
-    let currentDays = 30;
-    const charts = {};
+    const REGION_COLOR = { valley_iv: '#E5C100', wuling: '#5FB78A' };
+    let region = 'valley_iv', days = 30, items = [], selected = 0, chart = null;
 
-    function destroyAll() {
-        Object.values(charts).forEach(c => c.destroy());
-        for (const k in charts) delete charts[k];
+    const $sel = document.getElementById('selector');
+    const $focus = document.getElementById('focus-area');
+
+    function color() { return REGION_COLOR[region]; }
+
+    function chip(item, i) {
+        const on = i === selected ? 'on' : '';
+        const style = i === selected ? `style="border-color:${color()}"` : '';
+        const bar = i === selected ? `<span style="position:absolute;left:0;top:0;width:5px;height:100%;background:${color()}"></span>` : '';
+        return `<div class="ef-ichip ${on}" data-i="${i}" ${style}>${bar}
+            <div class="ic"><img src="/item_image/${item.item_id}" alt=""
+                 onerror="this.outerHTML='<span class=&quot;ph&quot;>#${item.item_id}</span>'"></div>
+            <div class="nm">${item.name_cn}</div>
+            <div class="id" ${i===selected?`style="color:${color()}"`:''}>#${item.item_id}</div>
+        </div>`;
     }
 
-    function renderCard(item) {
-        return `
-            <div class="col-md-6 col-xl-4">
-                <div class="card chart-card">
-                    <div class="card-body">
-                        <div class="chart-header">
-                            <img class="chart-thumb" src="/item_image/${item.item_id}"
-                                 alt="${item.name_cn}"
-                                 onerror="this.outerHTML='<div class=&quot;chart-thumb-fallback&quot;>#${item.item_id}</div>'">
-                            <div class="flex-grow-1">
-                                <div class="chart-name">${item.name_cn}</div>
-                                <div class="chart-meta">#${item.item_id} · ${item.name_en || ''}</div>
-                            </div>
-                        </div>
-                        <div class="chart-canvas-wrap">
-                            <canvas id="chart-${item.item_id}"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>`;
+    function renderSelector() {
+        $sel.innerHTML = items.map(chip).join('');
+        $sel.querySelectorAll('.ef-ichip').forEach(el => {
+            el.addEventListener('click', () => { selected = +el.dataset.i; renderSelector(); renderFocus(); });
+        });
+    }
+
+    function stat(k, v, cls) { return `<div class="ef-srow"><span class="k">${k}</span><span class="v ${cls||''}">${v}</span></div>`; }
+
+    function renderFocus() {
+        const it = items[selected];
+        if (!it) { $focus.innerHTML = ''; return; }
+        const my = it.my_series, fr = it.friend_series;
+        const myLast = my.length ? my[my.length - 1].price : '—';
+        const frLast = fr.length ? fr[fr.length - 1].price : '—';
+        const frMax = fr.length ? Math.max(...fr.map(p => p.price)) : '—';
+        const span = new Set([...my.map(p=>p.date), ...fr.map(p=>p.date)]).size;
+        $focus.innerHTML = `
+        <div class="ef-focus">
+            <div class="ef-panel chart"><span style="position:absolute;top:0;left:0;width:44px;height:4px;background:${color()}"></span>
+                <div class="ef-chart-head"><span class="big">${it.name_cn}</span>
+                    <span class="id" style="color:${color()}">#${it.item_id} · ${it.name_en || ''}</span></div>
+                <div class="ef-chartbox"><canvas id="fc"></canvas></div>
+            </div>
+            <div class="ef-panel ef-stats">
+                <div class="top" style="border-bottom-color:${color()}"><div class="nm">${it.name_cn}</div>
+                    <div class="en">${(region==='valley_iv'?'VALLEY':'WULING')} · #${it.item_id}</div></div>
+                ${stat('最新我的市場價', myLast)}
+                ${stat('最新好友最高價', frLast, 'y')}
+                ${stat('期間好友最高', frMax, 'up')}
+                ${stat('資料天數', span + ' 天', 'mut')}
+            </div>
+        </div>`;
+        drawChart(it);
     }
 
     function drawChart(item) {
-        const ctx = document.getElementById(`chart-${item.item_id}`);
-        if (!ctx) return;
+        if (chart) chart.destroy();
         const labels = Array.from(new Set([
-            ...item.my_series.map(p => p.date),
-            ...item.friend_series.map(p => p.date),
+            ...item.my_series.map(p => p.date), ...item.friend_series.map(p => p.date),
         ])).sort();
         const myMap = Object.fromEntries(item.my_series.map(p => [p.date, p.price]));
-        const friendMap = Object.fromEntries(item.friend_series.map(p => [p.date, p.price]));
-        charts[item.item_id] = new Chart(ctx, {
+        const frMap = Object.fromEntries(item.friend_series.map(p => [p.date, p.price]));
+        chart = new Chart(document.getElementById('fc'), {
             type: 'line',
-            data: {
-                labels: labels.map(d => d.slice(5)),
-                datasets: [
-                    {
-                        label: '我的市場價',
-                        data: labels.map(d => myMap[d] ?? null),
-                        borderColor: '#0d6efd',
-                        backgroundColor: 'rgba(13,110,253,0.1)',
-                        spanGaps: true,
-                        tension: 0.2,
-                    },
-                    {
-                        label: '好友最高價',
-                        data: labels.map(d => friendMap[d] ?? null),
-                        borderColor: '#dc3545',
-                        backgroundColor: 'rgba(220,53,69,0.1)',
-                        spanGaps: true,
-                        tension: 0.2,
-                    },
-                ],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 } } } },
-                scales: {
-                    y: { ticks: { font: { size: 10 } } },
-                    x: { ticks: { font: { size: 10 }, autoSkip: true, maxTicksLimit: 8 } },
-                },
-            },
+            data: { labels: labels.map(d => d.slice(5)), datasets: [
+                { label: '我的市場價', data: labels.map(d => myMap[d] ?? null), borderColor: color(),
+                  backgroundColor: color() + '22', fill: true, spanGaps: true, tension: .25, pointRadius: 3 },
+                { label: '好友最高價', data: labels.map(d => frMap[d] ?? null), borderColor: '#D9D9D9',
+                  backgroundColor: 'rgba(217,217,217,.05)', spanGaps: true, tension: .25, pointRadius: 3 },
+            ]},
+            options: { responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { labels: { boxWidth: 14, font: { size: 14 }, color: '#9a9a92' } } },
+                scales: { y: { grid: { color: '#2a2a2a' }, ticks: { color: '#828282', font: { size: 13 } } },
+                          x: { grid: { color: '#222' }, ticks: { color: '#828282', font: { size: 13 }, autoSkip: true, maxTicksLimit: 8 } } } }
         });
     }
 
     async function load() {
-        const grid = document.getElementById('charts-grid');
-        grid.innerHTML = '<div class="col-12 empty-note">載入中…</div>';
-        destroyAll();
+        $sel.innerHTML = '';
+        $focus.innerHTML = '<div class="ef-empty">載入中…</div>';
+        if (chart) { chart.destroy(); chart = null; }
         let data;
         try {
-            const r = await fetch(`/api/history-data?region=${currentRegion}&days=${currentDays}`);
-            data = await r.json();
-        } catch (e) {
-            grid.innerHTML = `<div class="col-12 empty-note">載入失敗：${e}</div>`;
-            return;
-        }
-        if (!data.ok || !data.items.length) {
-            grid.innerHTML = '<div class="col-12 empty-note">此地區尚無資料</div>';
-            return;
-        }
-        grid.innerHTML = data.items.map(renderCard).join('');
-        data.items.forEach(drawChart);
+            data = await (await fetch(`/api/history-data?region=${region}&days=${days}`)).json();
+        } catch (e) { $focus.innerHTML = `<div class="ef-empty">載入失敗：${e}</div>`; return; }
+        if (!data.ok || !data.items.length) { $focus.innerHTML = '<div class="ef-empty">此地區尚無資料</div>'; return; }
+        items = data.items; selected = 0;
+        renderSelector(); renderFocus();
     }
 
-    document.querySelectorAll('#region-tabs a').forEach(a => {
-        a.addEventListener('click', e => {
-            e.preventDefault();
-            document.querySelectorAll('#region-tabs a').forEach(x => x.classList.remove('active'));
-            a.classList.add('active');
-            currentRegion = a.dataset.region;
-            load();
+    document.querySelectorAll('#region-tabs .ef-rtab').forEach(t => {
+        t.addEventListener('click', () => {
+            document.querySelectorAll('#region-tabs .ef-rtab').forEach(x => x.classList.remove('on'));
+            t.classList.add('on'); region = t.dataset.region; load();
         });
     });
     document.querySelectorAll('#days-group button').forEach(b => {
         b.addEventListener('click', () => {
             document.querySelectorAll('#days-group button').forEach(x => x.classList.remove('active'));
-            b.classList.add('active');
-            currentDays = parseInt(b.dataset.days, 10);
-            load();
+            b.classList.add('active'); days = parseInt(b.dataset.days, 10); load();
         });
     });
 

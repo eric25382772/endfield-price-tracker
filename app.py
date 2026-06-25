@@ -15,6 +15,7 @@ from data.repository import (
     get_available_dates,
     upsert_friend_price,
     get_friend_names, get_profit_comparison, get_item_profit,
+    get_friend_name_aliases, set_friend_name_alias, rename_friend_prices,
     get_active_stockpile, mark_stockpile_sold_by_item,
     snapshot_date, delete_date_data, restore_snapshot,
     get_price_history, get_friend_max_price_history,
@@ -199,6 +200,14 @@ def compare():
     wuling_visible = get_visible_item_names('wuling', date)
     valley_comparison = [r for r in valley_comparison if r['name_cn'] in valley_visible]
     wuling_comparison = [r for r in wuling_comparison if r['name_cn'] in wuling_visible]
+
+    # v4.1：好友名顯示套正規化表（舊資料的 raw 名映成正解）；保留 raw 供手動修正 key
+    _aliases = get_friend_name_aliases()
+    for r in valley_comparison + wuling_comparison:
+        raw = r.get('best_friend')
+        r['best_friend_raw'] = raw
+        if raw:
+            r['best_friend'] = _aliases.get(raw, raw)
 
     # v3.2：每物品掛上明日預測（my_pred / fr_pred / pred_profit / pred_confidence）
     # 預測 from_date 用 selected date，讓選歷史日期時也能看到「當天的明日預測」
@@ -470,6 +479,19 @@ def api_friend_price():
                         game_date=game_date, source='manual')
     row = get_item_profit(item_id, game_date)
     return jsonify(ok=True, **row)
+
+
+@app.route('/api/friend-name', methods=['POST'])
+def api_friend_name():
+    """API：手動修正好友名稱 → 存進正規化表（source='user'，之後顯示自動套用）。"""
+    data = request.get_json()
+    raw = (data.get('raw') or '').strip()
+    name = (data.get('name') or '').strip()
+    if not raw or not name:
+        return jsonify(ok=False, error='名稱不可空白'), 400
+    set_friend_name_alias(raw, name, source='user')
+    rename_friend_prices(raw, name)  # 連底層舊資料一起改乾淨（不分日期）
+    return jsonify(ok=True, name=name)
 
 
 SCAN_STATUS_FILE = Path(__file__).parent / 'data' / 'scan_status.json'

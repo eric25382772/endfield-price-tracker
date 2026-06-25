@@ -149,10 +149,13 @@
                 friendCell.dataset.friendName = data.best_friend;
             }
 
-            // Update friend name column
+            // Update friend name column (4th td, index 3) — keep it editable
             var cells = row.querySelectorAll('td');
-            // Friend name is the 4th td (index 3)
-            cells[3].innerHTML = '<small>' + (data.best_friend || '-') + '</small>';
+            var fnCell = cells[3];
+            var rawName = data.best_friend || '';
+            fnCell.dataset.rawFriend = rawName;
+            fnCell.innerHTML = '<span class="fn-value"><small>' + (data.best_friend || '-') + '</small></span>' +
+                (rawName ? ' <button class="btn btn-sm edit-btn fn-edit-btn" title="修正名稱">&#9998;</button>' : '');
 
             // Update profit
             var profitCell = row.querySelector('.profit-cell');
@@ -219,6 +222,118 @@
         } else if (e.key === 'Escape') {
             e.preventDefault();
             closeActiveEditor();
+        }
+    });
+})();
+
+
+// ===== 好友名稱手動修正（v4.1）=====
+(function () {
+    'use strict';
+
+    function closeFnEditor() {
+        var form = document.querySelector('.fn-edit-form');
+        if (!form) return;
+        var cell = form.closest('.friend-name-cell');
+        form.remove();
+        if (!cell) return;
+        var v = cell.querySelector('.fn-value');
+        if (v) v.style.display = '';
+        var btn = cell.querySelector('.fn-edit-btn');
+        if (btn) btn.style.display = '';
+    }
+
+    function openFnEditor(cell) {
+        closeFnEditor();
+        var valueSpan = cell.querySelector('.fn-value');
+        var btn = cell.querySelector('.fn-edit-btn');
+        var current = valueSpan.textContent.trim();
+        if (current === '-') current = '';
+        valueSpan.style.display = 'none';
+        if (btn) btn.style.display = 'none';
+
+        var form = document.createElement('div');
+        form.className = 'fn-edit-form d-flex align-items-center justify-content-center gap-1';
+        form.innerHTML =
+            '<input type="text" class="form-control form-control-sm" style="max-width:130px" value="' +
+            current.replace(/"/g, '&quot;') + '">' +
+            '<button class="btn btn-sm btn-success fn-confirm" title="確認">&#10003;</button>' +
+            '<button class="btn btn-sm btn-outline-secondary fn-cancel" title="取消">&#10007;</button>';
+        cell.appendChild(form);
+        var input = form.querySelector('input');
+        input.focus();
+        input.select();
+    }
+
+    function submitFn(cell) {
+        if (!cell) return;
+        var input = cell.querySelector('.fn-edit-form input');
+        var name = input.value.trim();
+        var raw = cell.dataset.rawFriend || '';
+        if (name === '' || !raw) { closeFnEditor(); return; }
+
+        var btn = cell.querySelector('.fn-confirm');
+        btn.disabled = true;
+        btn.textContent = '...';
+        fetch('/api/friend-name', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ raw: raw, name: name })
+        })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (!data.ok) {
+                alert(data.error || '儲存失敗');
+                btn.disabled = false; btn.innerHTML = '&#10003;';
+                return;
+            }
+            // 同步整頁所有相同 raw 名的顯示（同一好友可能出現在多列）
+            document.querySelectorAll('.friend-name-cell').forEach(function (c) {
+                if (c.dataset.rawFriend === raw) {
+                    var v = c.querySelector('.fn-value');
+                    if (v) v.innerHTML = '<small>' + data.name + '</small>';
+                }
+            });
+            closeFnEditor();
+        })
+        .catch(function () {
+            alert('網路錯誤，請重試');
+            btn.disabled = false; btn.innerHTML = '&#10003;';
+        });
+    }
+
+    document.addEventListener('click', function (e) {
+        if (e.target.closest('.fn-edit-btn')) {
+            e.preventDefault();
+            e.stopPropagation();
+            var cell = e.target.closest('.friend-name-cell');
+            if (cell) openFnEditor(cell);
+            return;
+        }
+        if (e.target.closest('.fn-confirm')) {
+            e.preventDefault();
+            submitFn(e.target.closest('.friend-name-cell'));
+            return;
+        }
+        if (e.target.closest('.fn-cancel')) {
+            e.preventDefault();
+            closeFnEditor();
+            return;
+        }
+        if (!e.target.closest('.fn-edit-form') && !e.target.closest('.fn-edit-btn')) {
+            closeFnEditor();
+        }
+    });
+
+    document.addEventListener('keydown', function (e) {
+        var form = document.querySelector('.fn-edit-form');
+        if (!form) return;
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            submitFn(form.closest('.friend-name-cell'));
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            closeFnEditor();
         }
     });
 })();

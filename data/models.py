@@ -54,6 +54,18 @@ def init_db():
         )
     """)
 
+    # 好友名稱正規化表（v4.1）：raw OCR 字串 → 正解名稱
+    #   source='ocr_fallback' 由掃描器日韓回退自動學習；source='user' 由使用者手動修正
+    #   用途一：掃描器查表命中就跳過日韓回退（加速）；用途二：/compare 顯示時把舊資料 raw 名映成正解
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS friend_names (
+            raw_name TEXT PRIMARY KEY,
+            canonical TEXT NOT NULL,
+            source TEXT NOT NULL DEFAULT 'ocr_fallback',
+            updated_at TIMESTAMP DEFAULT (datetime('now','localtime'))
+        )
+    """)
+
     # 囤貨紀錄
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS stockpile (

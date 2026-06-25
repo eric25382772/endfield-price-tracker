@@ -29,10 +29,11 @@ from data.models import init_db
 from data.items import VALLEY_IV_GOODS, WULING_GOODS
 from data.repository import (
     get_all_items, upsert_price, upsert_friend_price,
-    delete_friend_prices_for_item, upsert_stockpile, upsert_quota
+    delete_friend_prices_for_item, upsert_stockpile, upsert_quota,
+    get_friend_name_alias, set_friend_name_alias
 )
 from data.items import REGION_QUOTA, get_region_quota
-from ocr.engine import recognize
+from ocr.engine import recognize, recognize_crop
 from ocr.parser import parse_ocr_results
 from ocr.image_matcher import identify_items_by_image, get_card_positions, identify_friend_item
 
@@ -599,6 +600,66 @@ def scan_my_prices():
     _do_f2_capture()
 
 
+# 幾乎不會出現在真實玩家暱稱、卻常見於 OCR 亂碼的符號
+_NAME_JUNK = set("|\\=^~`[]{}<>")
+
+
+def _looks_garbled(name):
+    """好友名（含 #tag）去掉編號後，含亂碼符號或有效字元比例過低 → 視為認錯。
+    isalnum() 在 Python 對中日韓文字也回 True，所以中/日/韓/英名字都算有效。"""
+    base = re.sub(r'#\d{3,4}$', '', name).strip().replace(' ', '')
+    if not base:
+        return True
+    if any(ch in _NAME_JUNK for ch in base):
+        return True
+    valid = sum(1 for ch in base if ch.isalnum())
+    return valid / len(base) < 0.6
+
+
+def _canonicalize_friend_name(raw, bbox, image):
+    """把一個好友名 raw 正規化成正解。
+    1. alias 表命中 → 直接用（跳過日韓回退，這就是「越用越快」的來源）
+    2. 看起來是亂碼 → 裁切該名字區塊，回退跑日文、韓文，挑最不亂碼的存起來
+    3. 都沒改善 → 原樣返回（中英名字本來就在這條快路上）
+    """
+    learned = get_friend_name_alias(raw)
+    if learned:
+        return learned
+    if not _looks_garbled(raw):
+        return raw
+    if image is None or not bbox:
+        return raw
+    m = re.search(r'(#\d{3,4})$', raw.strip())
+    tag = m.group(1) if m else ''
+    digits = tag.lstrip('#')
+    best = None
+    for langs in (('ja', 'en'), ('ko', 'en')):
+        text, conf = recognize_crop(image, bbox, langs)
+        if not text:
+            continue
+        # 回退結果只取「名字」部分，編號一律用繁中讀到的 tag（數字本來就好認）。
+        # 砍掉尾端的編號（含 # 被誤判成 井／＃ 或省略、夾雜空白的情況）
+        name_part = text
+        cut = re.search(r'[#＃井]?\s*' + re.escape(digits) + r'\s*$', name_part) if digits else None
+        if cut:
+            name_part = name_part[:cut.start()]
+        else:
+            name_part = re.split(r'[#＃0-9]', name_part, 1)[0]
+        name_part = re.sub(r'[\s#＃井|/=^~`\[\]{}<>]+$', '', name_part).strip()
+        if not name_part:
+            continue
+        cand = name_part + tag
+        if _looks_garbled(cand):
+            continue
+        if best is None or conf > best[1]:
+            best = (cand, conf)
+    if best:
+        set_friend_name_alias(raw, best[0], source='ocr_fallback')
+        print(f"    [日韓回退] {raw} → {best[0]} (conf {best[1]:.2f})")
+        return best[0]
+    return raw
+
+
 def parse_friend_list(ocr_results, img_width=2560):
     """
     解析好友價格畫面右側的好友列表。
@@ -627,6 +688,7 @@ def parse_friend_list(ocr_results, img_width=2560):
                 'name': text,
                 'center_y': block['center_y'],
                 'center_x': block['center_x'],
+                'bbox': block['bbox'],
             })
             continue
         # 價格: 4 位數字 (1000~6000)，只在價格欄 x 範圍內抓
@@ -672,6 +734,7 @@ def parse_friend_list(ocr_results, img_width=2560):
             results.append({
                 'friend_name': nb['name'],
                 'price': chosen['price'],
+                'bbox': nb['bbox'],
             })
             print(f"    {nb['name']}: {chosen['price']}")
         else:
@@ -722,8 +785,9 @@ def process_friend_prices(filepath):
         delete_friend_prices_for_item(item_id, game_date)
         saved = 0
         for entry in friend_list:
+            name = _canonicalize_friend_name(entry['friend_name'], entry.get('bbox'), img)
             upsert_friend_price(item_id, entry['price'],
-                                friend_name=entry['friend_name'],
+                                friend_name=name,
                                 game_date=game_date, source='scanner')
             saved += 1
 

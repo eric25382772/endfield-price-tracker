@@ -160,6 +160,55 @@ def get_friend_names(game_date=None):
     return [row['friend_name'] for row in rows]
 
 
+# ===== 好友名稱正規化（v4.1） =====
+
+def get_friend_name_alias(raw_name):
+    """查單一 raw OCR 字串的正解名稱；無則回 None。掃描器用它判斷是否可跳過日韓回退。"""
+    conn = get_db()
+    row = conn.execute(
+        "SELECT canonical FROM friend_names WHERE raw_name = ?", (raw_name,)).fetchone()
+    conn.close()
+    return row['canonical'] if row else None
+
+
+def set_friend_name_alias(raw_name, canonical, source='ocr_fallback'):
+    """記住 raw → canonical 對應。source='user' 會覆寫 'ocr_fallback'（手動修正優先）。"""
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO friend_names (raw_name, canonical, source, updated_at)
+        VALUES (?, ?, ?, datetime('now','localtime'))
+        ON CONFLICT(raw_name) DO UPDATE SET canonical = excluded.canonical,
+                                            source = excluded.source,
+                                            updated_at = datetime('now','localtime')
+    """, (raw_name, canonical, source))
+    conn.commit()
+    conn.close()
+
+
+def get_friend_name_aliases():
+    """回傳 {raw_name: canonical} 整表，供 /compare 顯示時把舊資料名稱映成正解。"""
+    conn = get_db()
+    rows = conn.execute("SELECT raw_name, canonical FROM friend_names").fetchall()
+    conn.close()
+    return {row['raw_name']: row['canonical'] for row in rows}
+
+
+def rename_friend_prices(raw_name, canonical):
+    """把 friend_prices 裡所有 raw 名字（不分日期）改寫成正解，讓底層資料也乾淨。
+    OR IGNORE 避開 UNIQUE(item_id, friend_name, game_date) 撞列的極少數情況。
+    回傳改動的列數。"""
+    if raw_name == canonical:
+        return 0
+    conn = get_db()
+    cur = conn.execute(
+        "UPDATE OR IGNORE friend_prices SET friend_name = ? WHERE friend_name = ?",
+        (canonical, raw_name))
+    n = cur.rowcount
+    conn.commit()
+    conn.close()
+    return n
+
+
 def get_profit_comparison(region, game_date=None):
     """Compare self prices vs best friend prices, calculate profit, sorted by profit desc."""
     if game_date is None:

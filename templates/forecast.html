@@ -1,177 +1,126 @@
 {% extends "base.html" %}
 {% block content %}
-<style>
-    .chart-card { height: 100%; }
-    .chart-card .card-body { padding: 0.75rem; }
-    .chart-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem; }
-    .chart-thumb {
-        width: 44px; height: 44px; object-fit: cover;
-        border-radius: 4px; background: #2a2d35; flex-shrink: 0;
-        border: 1px solid #3a3f4b;
-    }
-    .chart-thumb-fallback {
-        width: 44px; height: 44px; border-radius: 4px;
-        background: #2a2d35; border: 1px solid #3a3f4b; flex-shrink: 0;
-        display: flex; align-items: center; justify-content: center;
-        color: #6c757d; font-size: 0.7rem;
-    }
-    .chart-name { color: #e0e0e0; font-weight: bold; font-size: 0.95rem; line-height: 1.2; }
-    .chart-meta { color: #8a8f99; font-size: 0.75rem; }
-    .chart-canvas-wrap { position: relative; height: 180px; }
-    .forecast-summary { font-size: 0.8rem; margin-top: 0.4rem; color: #b0b6c0;
-                       display: flex; justify-content: space-between; }
-    .summary-warning { color: #fd7e14; }
-    .empty-note { color: #8a8f99; font-size: 0.9rem; text-align: center; padding: 60px 0; }
-    .today-badge {
-        background: #2a2d35; color: #b0b6c0; padding: 2px 8px;
-        border-radius: 3px; font-size: 0.75rem; border: 1px solid #3a3f4b;
-    }
-</style>
+<div class="ef-htitle">
+    <h3>價格預測</h3>
+    <div class="ef-segbar"><i></i><i></i><i></i></div>
+</div>
+<p class="text-muted mb-2"><span class="ef-label">FORECAST</span> · 以每物品同星期幾歷史中位數為基準，套全區漲跌修正 · 今日 <span class="ef-label" id="today-text">…</span></p>
 
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h3 class="mb-0">價格預測 <span class="today-badge ms-2">今日 {{ '' }}<span id="today-text">…</span></span></h3>
-    <div class="text-muted small">以每物品同星期幾歷史中位數為基準，套上全區漲跌修正</div>
+<div class="ef-rtabs" id="region-tabs">
+    <div class="ef-rtab on" data-region="valley_iv">四號谷地</div>
+    <div class="ef-rtab" data-region="wuling">武陵</div>
 </div>
 
-<ul class="nav nav-tabs mb-3" id="region-tabs">
-    <li class="nav-item"><a class="nav-link active" data-region="valley_iv" href="#">四號谷地</a></li>
-    <li class="nav-item"><a class="nav-link" data-region="wuling" href="#">武陵</a></li>
-</ul>
-
-<div id="charts-grid" class="row g-3"></div>
+<div class="ef-selector-wrap">
+    <button type="button" class="ef-arrow ef-arrow-l" aria-label="上一個">&#8249;</button>
+    <div class="ef-selector" id="selector"></div>
+    <button type="button" class="ef-arrow ef-arrow-r" aria-label="下一個">&#8250;</button>
+</div>
+<div id="focus-area"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 (function () {
-    let currentRegion = 'valley_iv';
-    const charts = {};
+    const REGION_COLOR = { valley_iv: '#E5C100', wuling: '#5FB78A' };
+    let region = 'valley_iv', items = [], selected = 0, chart = null;
 
-    function destroyAll() {
-        Object.values(charts).forEach(c => c.destroy());
-        for (const k in charts) delete charts[k];
+    const $sel = document.getElementById('selector');
+    const $focus = document.getElementById('focus-area');
+    function color() { return REGION_COLOR[region]; }
+
+    function chip(item, i) {
+        const on = i === selected ? 'on' : '';
+        const style = i === selected ? `style="border-color:${color()}"` : '';
+        const bar = i === selected ? `<span style="position:absolute;left:0;top:0;width:5px;height:100%;background:${color()}"></span>` : '';
+        return `<div class="ef-ichip ${on}" data-i="${i}" ${style}>${bar}
+            <div class="ic"><img src="/item_image/${item.item_id}" alt=""
+                 onerror="this.outerHTML='<span class=&quot;ph&quot;>#${item.item_id}</span>'"></div>
+            <div class="nm">${item.name_cn}</div>
+            <div class="id" ${i===selected?`style="color:${color()}"`:''}>#${item.item_id}</div>
+        </div>`;
     }
 
-    function summaryHtml(myF, friendF) {
-        const myWarn = myF.data_insufficient;
-        const friendWarn = friendF.data_insufficient;
-        const myCls = myWarn ? 'summary-warning' : '';
-        const friendCls = friendWarn ? 'summary-warning' : '';
-        const myConf = (myF.confidence * 100).toFixed(0);
-        const friendConf = (friendF.confidence * 100).toFixed(0);
+    function renderSelector() {
+        $sel.innerHTML = items.map(chip).join('');
+        $sel.querySelectorAll('.ef-ichip').forEach(el => {
+            el.addEventListener('click', () => { selected = +el.dataset.i; renderSelector(); renderFocus(); });
+        });
+    }
+
+    function stat(k, v, cls) { return `<div class="ef-srow"><span class="k">${k}</span><span class="v ${cls||''}">${v}</span></div>`; }
+
+    function renderFocus() {
+        const it = items[selected];
+        if (!it) { $focus.innerHTML = ''; return; }
+        const myF = it.my_forecast, frF = it.friend_forecast;
         const myLast = myF.predictions.length ? myF.predictions[myF.predictions.length - 1].predicted : '—';
-        const friendLast = friendF.predictions.length ? friendF.predictions[friendF.predictions.length - 1].predicted : '—';
-        const insufficientTag = (myWarn || friendWarn)
-            ? '<div class="summary-warning" style="font-size:0.75rem;margin-top:2px;">資料不足，僅供參考</div>'
-            : '';
-        return `
-            <div class="forecast-summary">
-                <span class="${myCls}">第 7 天｜我 <strong>${myLast}</strong>（信心 ${myConf}%）</span>
-                <span class="${friendCls}">好友 <strong>${friendLast}</strong>（信心 ${friendConf}%）</span>
-            </div>${insufficientTag}`;
-    }
-
-    function renderCard(item) {
-        return `
-            <div class="col-md-6 col-xl-4">
-                <div class="card chart-card">
-                    <div class="card-body">
-                        <div class="chart-header">
-                            <img class="chart-thumb" src="/item_image/${item.item_id}"
-                                 alt="${item.name_cn}"
-                                 onerror="this.outerHTML='<div class=&quot;chart-thumb-fallback&quot;>#${item.item_id}</div>'">
-                            <div class="flex-grow-1">
-                                <div class="chart-name">${item.name_cn}</div>
-                                <div class="chart-meta">#${item.item_id} · ${item.name_en || ''}</div>
-                            </div>
-                        </div>
-                        <div class="chart-canvas-wrap">
-                            <canvas id="chart-${item.item_id}"></canvas>
-                        </div>
-                        ${summaryHtml(item.my_forecast, item.friend_forecast)}
-                    </div>
-                </div>
-            </div>`;
+        const frLast = frF.predictions.length ? frF.predictions[frF.predictions.length - 1].predicted : '—';
+        const myConf = (myF.confidence * 100).toFixed(0) + '%';
+        const frConf = (frF.confidence * 100).toFixed(0) + '%';
+        const insuf = myF.data_insufficient || frF.data_insufficient;
+        const badge = insuf
+            ? `<div class="ef-fbadge warn">⚠ 資料不足，僅供參考</div>`
+            : `<div class="ef-fbadge" style="background:${color()}">預測信心足夠</div>`;
+        $focus.innerHTML = `
+        <div class="ef-focus">
+            <div class="ef-panel chart"><span style="position:absolute;top:0;left:0;width:44px;height:4px;background:${color()}"></span>
+                <div class="ef-chart-head"><span class="big">${it.name_cn}</span>
+                    <span class="id" style="color:${color()}">#${it.item_id} · ${it.name_en || ''}</span></div>
+                <div class="ef-chartbox"><canvas id="fc"></canvas></div>
+            </div>
+            <div class="ef-panel ef-stats">
+                <div class="top" style="border-bottom-color:${color()}"><div class="nm">${it.name_cn}</div>
+                    <div class="en">${(region==='valley_iv'?'VALLEY':'WULING')} · #${it.item_id}</div></div>
+                ${stat('第 7 天 我的預測', myLast)}
+                ${stat('我的信心', myConf, 'mut')}
+                ${stat('第 7 天 好友預測', frLast, 'y')}
+                ${stat('好友信心', frConf, 'mut')}
+                ${badge}
+            </div>
+        </div>`;
+        drawChart(it);
     }
 
     function drawChart(item) {
-        const ctx = document.getElementById(`chart-${item.item_id}`);
-        if (!ctx) return;
-        const myPreds = item.my_forecast.predictions;
-        const fPreds = item.friend_forecast.predictions;
-        const allDates = Array.from(new Set([
-            ...myPreds.map(p => p.date), ...fPreds.map(p => p.date),
-        ])).sort();
-        const myMap = Object.fromEntries(myPreds.map(p => [p.date, p.predicted]));
-        const fMap = Object.fromEntries(fPreds.map(p => [p.date, p.predicted]));
-        const labels = allDates.map(d => d.slice(5));
-
-        charts[item.item_id] = new Chart(ctx, {
+        if (chart) chart.destroy();
+        const myP = item.my_forecast.predictions, frP = item.friend_forecast.predictions;
+        const dates = Array.from(new Set([...myP.map(p => p.date), ...frP.map(p => p.date)])).sort();
+        const myMap = Object.fromEntries(myP.map(p => [p.date, p.predicted]));
+        const frMap = Object.fromEntries(frP.map(p => [p.date, p.predicted]));
+        chart = new Chart(document.getElementById('fc'), {
             type: 'line',
-            data: {
-                labels,
-                datasets: [
-                    {
-                        label: '我的市場價（預測）',
-                        data: allDates.map(d => myMap[d] ?? null),
-                        borderColor: '#0d6efd',
-                        backgroundColor: 'rgba(13,110,253,0.1)',
-                        spanGaps: true, tension: 0.2, pointRadius: 3,
-                    },
-                    {
-                        label: '好友最高價（預測）',
-                        data: allDates.map(d => fMap[d] ?? null),
-                        borderColor: '#dc3545',
-                        backgroundColor: 'rgba(220,53,69,0.1)',
-                        spanGaps: true, tension: 0.2, pointRadius: 3,
-                    },
-                ],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { labels: { boxWidth: 10, font: { size: 10 }, color: '#b0b6c0' } },
-                    tooltip: { callbacks: { title: (items) => items[0] && allDates[items[0].dataIndex] } },
-                },
-                scales: {
-                    y: { ticks: { font: { size: 10 }, color: '#8a8f99' }, grid: { color: '#2a2d35' } },
-                    x: {
-                        ticks: { font: { size: 10 }, color: '#8a8f99', autoSkip: true, maxTicksLimit: 10 },
-                        grid: { color: '#2a2d35' },
-                    },
-                },
-            },
+            data: { labels: dates.map(d => d.slice(5)), datasets: [
+                { label: '我的市場價（預測）', data: dates.map(d => myMap[d] ?? null), borderColor: color(),
+                  backgroundColor: color() + '22', borderDash: [6, 4], fill: true, spanGaps: true, tension: .25, pointRadius: 3 },
+                { label: '好友最高價（預測）', data: dates.map(d => frMap[d] ?? null), borderColor: '#D9D9D9',
+                  backgroundColor: 'rgba(217,217,217,.05)', borderDash: [6, 4], spanGaps: true, tension: .25, pointRadius: 3 },
+            ]},
+            options: { responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { labels: { boxWidth: 14, font: { size: 14 }, color: '#9a9a92' } },
+                    tooltip: { callbacks: { title: items => items[0] && dates[items[0].dataIndex] } } },
+                scales: { y: { grid: { color: '#2a2a2a' }, ticks: { color: '#828282', font: { size: 13 } } },
+                          x: { grid: { color: '#222' }, ticks: { color: '#828282', font: { size: 13 }, autoSkip: true, maxTicksLimit: 10 } } } }
         });
     }
 
     async function load() {
-        const grid = document.getElementById('charts-grid');
-        grid.innerHTML = '<div class="col-12 empty-note">載入中…</div>';
-        destroyAll();
+        $sel.innerHTML = '';
+        $focus.innerHTML = '<div class="ef-empty">載入中…</div>';
+        if (chart) { chart.destroy(); chart = null; }
         let data;
         try {
-            const r = await fetch(`/api/forecast-data?region=${currentRegion}`);
-            data = await r.json();
-        } catch (e) {
-            grid.innerHTML = `<div class="col-12 empty-note">載入失敗：${e}</div>`;
-            return;
-        }
-        if (!data.ok || !data.items.length) {
-            grid.innerHTML = '<div class="col-12 empty-note">此地區尚無資料</div>';
-            return;
-        }
+            data = await (await fetch(`/api/forecast-data?region=${region}`)).json();
+        } catch (e) { $focus.innerHTML = `<div class="ef-empty">載入失敗：${e}</div>`; return; }
+        if (!data.ok || !data.items.length) { $focus.innerHTML = '<div class="ef-empty">此地區尚無資料</div>'; return; }
         document.getElementById('today-text').textContent = data.today;
-        grid.innerHTML = data.items.map(renderCard).join('');
-        data.items.forEach(it => drawChart(it));
+        items = data.items; selected = 0;
+        renderSelector(); renderFocus();
     }
 
-    document.querySelectorAll('#region-tabs a').forEach(a => {
-        a.addEventListener('click', e => {
-            e.preventDefault();
-            document.querySelectorAll('#region-tabs a').forEach(x => x.classList.remove('active'));
-            a.classList.add('active');
-            currentRegion = a.dataset.region;
-            load();
+    document.querySelectorAll('#region-tabs .ef-rtab').forEach(t => {
+        t.addEventListener('click', () => {
+            document.querySelectorAll('#region-tabs .ef-rtab').forEach(x => x.classList.remove('on'));
+            t.classList.add('on'); region = t.dataset.region; load();
         });
     });
 

@@ -10,11 +10,12 @@
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
-            <a class="navbar-brand" href="/">終末地 彈性物資追蹤器</a>
+            <a class="navbar-brand" href="/"><span class="ef-mark">EF</span> 終末地 物資追蹤</a>
+            <span class="ef-nav-disclaimer">非官方粉絲工具</span>
             <div class="navbar-nav ms-auto align-items-center">
-                <a class="nav-link" href="/compare">利潤比對</a>
-                <a class="nav-link" href="/history">歷史分析</a>
-                <a class="nav-link" href="/forecast">價格預測</a>
+                <a class="nav-link {{ 'active' if request.path == '/compare' else '' }}" href="/compare">利潤比對</a>
+                <a class="nav-link {{ 'active' if request.path == '/history' else '' }}" href="/history">歷史走勢</a>
+                <a class="nav-link {{ 'active' if request.path == '/forecast' else '' }}" href="/forecast">價格預測</a>
             </div>
         </div>
     </nav>
@@ -154,6 +155,11 @@
             const phase = d.phase || 'idle';
             const region = d.region || null;
             const completed = (typeof d.completed === 'number') ? d.completed : null;
+
+            // /compare：辨識出地區就自動跳到該地區分頁（也寫進記憶，reload 後維持）
+            if (region && window.setCompareRegion && region !== window._compareRegion) {
+                window.setCompareRegion(region);
+            }
             const errorBanner = document.getElementById('scan-error-banner');
             const err = d.error || '';
             if (errorBanner) {
@@ -224,6 +230,25 @@
         }
         setInterval(pollStatus, 1500);
         pollStatus();
+    })();
+    </script>
+    <script>
+    // 橫式貨物選單：兩側箭頭 + 滑鼠滾輪左右捲（歷史/預測頁共用）
+    (function () {
+        document.querySelectorAll('.ef-selector-wrap').forEach(function (wrap) {
+            var sel = wrap.querySelector('.ef-selector');
+            if (!sel) return;
+            function step() { return Math.max(160, sel.clientWidth * 0.8); }
+            var l = wrap.querySelector('.ef-arrow-l');
+            var r = wrap.querySelector('.ef-arrow-r');
+            if (l) l.addEventListener('click', function () { sel.scrollBy({ left: -step(), behavior: 'smooth' }); });
+            if (r) r.addEventListener('click', function () { sel.scrollBy({ left: step(), behavior: 'smooth' }); });
+            sel.addEventListener('wheel', function (e) {
+                if (e.deltaY === 0) return;
+                e.preventDefault();
+                sel.scrollLeft += e.deltaY;
+            }, { passive: false });
+        });
     })();
     </script>
     {% block scripts %}{% endblock %}
