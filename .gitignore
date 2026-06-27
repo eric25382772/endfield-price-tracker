@@ -8,6 +8,7 @@ data/heartbeat.json
 data/f2_decision.json
 data/reset_backup_*.json
 data/.recorded_at_tz_fixed
+data/friend_ocr_debug.log
 uploads/
 *.egg-info/
 dist/

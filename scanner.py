@@ -48,6 +48,8 @@ f2_ready = threading.Event()  # F2 已成功完成過至少一次且目前未在
 
 SCAN_STATUS_FILE = Path(__file__).parent / 'data' / 'scan_status.json'
 HEARTBEAT_FILE = Path(__file__).parent / 'data' / 'heartbeat.json'
+# F3 好友掃描的原始 OCR 診斷 log：每列原文/座標/信心，方便事後查名字/價格認錯
+FRIEND_OCR_DEBUG_LOG = Path(__file__).parent / 'data' / 'friend_ocr_debug.log'
 _shutdown_event = threading.Event()
 _completed_count = 0  # 每完成一張截圖處理 +1，網頁偵測此計數變化即 reload
 
@@ -604,6 +606,29 @@ def scan_my_prices():
 _NAME_JUNK = set("|\\=^~`[]{}<>")
 
 
+def _has_cjk(s):
+    """字串是否含中（漢字）／日（平假名・片假名）／韓（諺文）文字。"""
+    for ch in s:
+        o = ord(ch)
+        if (0x3040 <= o <= 0x30FF or   # 平/片假名
+                0x3400 <= o <= 0x9FFF or   # 漢字（含擴充 A）
+                0xAC00 <= o <= 0xD7A3):    # 韓文音節
+            return True
+    return False
+
+
+def _has_kana_or_hangul(s):
+    """含日文假名或韓文諺文（不含漢字）。
+    用來判斷「低信心名」是否真的是日韓名 —— 只有含假名/諺文才該丟去日韓 reader 重讀；
+    純漢字的低信心名（例：罕見字『苜蓿米』被讀錯）本來就是中文，丟日韓只會更糟。"""
+    for ch in s:
+        o = ord(ch)
+        if (0x3040 <= o <= 0x30FF or   # 平/片假名
+                0xAC00 <= o <= 0xD7A3):    # 韓文音節
+            return True
+    return False
+
+
 def _looks_garbled(name):
     """好友名（含 #tag）去掉編號後，含亂碼符號或有效字元比例過低 → 視為認錯。
     isalnum() 在 Python 對中日韓文字也回 True，所以中/日/韓/英名字都算有效。"""
@@ -612,20 +637,37 @@ def _looks_garbled(name):
         return True
     if any(ch in _NAME_JUNK for ch in base):
         return True
+    # 真實暱稱至少有一個「字母」（英數中日韓的字，isalpha 對中日韓也回 True）。
+    # 只剩數字／符號（例：片假名「アニマ」被繁中 reader 誤讀成「7_7」）視為認錯，
+    # 才會進日韓回退；否則 0.6 比例門檻會放行而永遠跳過回退。
+    if not any(ch.isalpha() for ch in base):
+        return True
+    # 片假名／韓文常被繁中 reader 讀成「漢字＋ASCII 數字/符號」的混雜串
+    # （例：わっち→枸51、らぷらす→5.3:5寸）。CJK 文字與 ASCII 非字母混在一起 → 視為認錯。
+    # 真名通常同一語系（全漢字 / 全假名 / 全諺文 / 全英），不會 CJK 夾 ASCII 數字符號；
+    # 純英數名（Fox0nLy）不含 CJK，不受影響。
+    if _has_cjk(base) and any(ch.isascii() and not ch.isalpha() for ch in base):
+        return True
     valid = sum(1 for ch in base if ch.isalnum())
     return valid / len(base) < 0.6
 
 
-def _canonicalize_friend_name(raw, bbox, image):
+def _canonicalize_friend_name(raw, bbox, image, conf=None):
     """把一個好友名 raw 正規化成正解。
     1. alias 表命中 → 直接用（跳過日韓回退，這就是「越用越快」的來源）
-    2. 看起來是亂碼 → 裁切該名字區塊，回退跑日文、韓文，挑最不亂碼的存起來
+    2. 看起來是亂碼、或繁中 reader 信心過低 → 裁切該名字區塊，回退跑日文、韓文
     3. 都沒改善 → 原樣返回（中英名字本來就在這條快路上）
     """
     learned = get_friend_name_alias(raw)
     if learned:
         return learned
-    if not _looks_garbled(raw):
+    # 觸發日韓回退的兩種情形：
+    #   a) 亂碼（7_7、枸51、5.3:5寸 這種）
+    #   b) 繁中信心過低「且名字含假名/諺文」（例：ろ一さ conf=0.53，ー 被讀成漢字一）。
+    #      —— 必須有假名/諺文才丟去日韓，否則純漢字的罕見字中文名（苜蓿米）會被換成日文亂碼。
+    low_conf = (conf is not None and conf < 0.6 and _has_kana_or_hangul(raw))
+    garbled = _looks_garbled(raw)
+    if not garbled and not low_conf:
         return raw
     if image is None or not bbox:
         return raw
@@ -654,9 +696,11 @@ def _canonicalize_friend_name(raw, bbox, image):
         if best is None or conf > best[1]:
             best = (cand, conf)
     if best:
-        set_friend_name_alias(raw, best[0], source='ocr_fallback')
-        print(f"    [日韓回退] {raw} → {best[0]} (conf {best[1]:.2f})")
-        return best[0]
+        # 只在「原本是亂碼」或「回退比繁中更有把握」時才取代，避免把對的中文名換掉
+        if garbled or best[1] > (conf or 0):
+            set_friend_name_alias(raw, best[0], source='ocr_fallback')
+            print(f"    [日韓回退] {raw} → {best[0]} (conf {best[1]:.2f})")
+            return best[0]
     return raw
 
 
@@ -689,6 +733,7 @@ def parse_friend_list(ocr_results, img_width=2560):
                 'center_y': block['center_y'],
                 'center_x': block['center_x'],
                 'bbox': block['bbox'],
+                'conf': block.get('confidence', 0.0),
             })
             continue
         # 價格: 4 位數字 (1000~6000)，只在價格欄 x 範圍內抓
@@ -735,6 +780,7 @@ def parse_friend_list(ocr_results, img_width=2560):
                 'friend_name': nb['name'],
                 'price': chosen['price'],
                 'bbox': nb['bbox'],
+                'name_conf': nb.get('conf', 0.0),
             })
             print(f"    {nb['name']}: {chosen['price']}")
         else:
@@ -784,12 +830,29 @@ def process_friend_prices(filepath):
         game_date = get_game_date()
         delete_friend_prices_for_item(item_id, game_date)
         saved = 0
+        debug_rows = []
         for entry in friend_list:
-            name = _canonicalize_friend_name(entry['friend_name'], entry.get('bbox'), img)
+            name = _canonicalize_friend_name(entry['friend_name'], entry.get('bbox'), img,
+                                             conf=entry.get('name_conf'))
             upsert_friend_price(item_id, entry['price'],
                                 friend_name=name,
                                 game_date=game_date, source='scanner')
             saved += 1
+            debug_rows.append((entry['friend_name'], name, entry['price']))
+
+        # 診斷 log：原始 OCR + 配對/正規化結果，方便事後查名字/價格認錯
+        try:
+            from datetime import datetime as _dt
+            with open(FRIEND_OCR_DEBUG_LOG, 'a', encoding='utf-8') as _f:
+                _f.write(f"\n===== {_dt.now():%Y-%m-%d %H:%M:%S}  item_{item_id} {item_name} ({region_name}) =====\n")
+                _f.write("-- 原始 OCR 區塊（依 y, x 排序）--\n")
+                for b in sorted(ocr_results, key=lambda x: (x['center_y'], x['center_x'])):
+                    _f.write(f"   text={b['text']!r:24} x={b['center_x']:.0f} y={b['center_y']:.0f} conf={b['confidence']:.2f}\n")
+                _f.write("-- 配對結果（原讀名 → 正規化名 = 價格）--\n")
+                for raw_name, name, price in debug_rows:
+                    _f.write(f"   {raw_name!r} -> {name!r} = {price}\n")
+        except Exception as _e:
+            print(f"  [診斷 log 失敗] {_e}")
 
         print(f"\n  已儲存 {saved} 筆好友價格 - {item_name} ({region_name})")
         ensure_flask()
