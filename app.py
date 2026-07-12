@@ -1,8 +1,10 @@
 import json
+import time
+import threading
 import statistics
 from datetime import datetime
 from pathlib import Path
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, abort
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, abort, Response
 from config import (
     REGIONS, get_game_date, PROFIT_THRESHOLD, STOCKPILE_THRESHOLD,
     WAIT_GAIN_RATIO, WAIT_MIN_CONFIDENCE, BUYABLE_RATIO,
@@ -593,7 +595,61 @@ def api_f2_cancel():
     return jsonify(ok=ok)
 
 
+# ── 關網頁自動收工（SSE 長連線）────────────────────────────────
+# 網頁開一條 EventSource 持續連線；分頁一關連線立刻斷 → 計數歸零 →
+# 緩衝 8 秒（避開 reload 造成的短暫斷線）後寫 shutdown.flag，scanner 讀到就結束整組程式。
+# 用長連線而非輪詢心跳，是因為全螢幕玩遊戲時瀏覽器會 throttle 背景分頁的計時器，
+# 舊心跳因此誤判自關（v4.2 前已移除）；長連線不受 throttle 影響，只有真正關閉才會斷。
+SHUTDOWN_FILE = Path(__file__).parent / 'data' / 'shutdown.flag'
+SSE_GRACE = 8.0
+_sse_lock = threading.Lock()
+_sse_clients = 0
+_sse_grace_timer = None
+
+
+def _request_shutdown():
+    with _sse_lock:
+        if _sse_clients > 0:
+            return  # 緩衝期內有分頁重連（例如 reload），取消收工
+    try:
+        SHUTDOWN_FILE.write_text(
+            json.dumps({'ts': datetime.now().isoformat()}), encoding='utf-8')
+    except Exception:
+        pass
+
+
+@app.route('/api/alive')
+def api_alive():
+    """網頁保持一條 SSE 長連線；斷線代表分頁關閉。"""
+    def stream():
+        global _sse_clients, _sse_grace_timer
+        with _sse_lock:
+            _sse_clients += 1
+            if _sse_grace_timer is not None:
+                _sse_grace_timer.cancel()
+                _sse_grace_timer = None
+        try:
+            yield ': connected\n\n'
+            while True:
+                time.sleep(5)
+                yield ': ping\n\n'  # keepalive；下次寫入若對方已關會拋錯 → 進 finally
+        finally:
+            with _sse_lock:
+                _sse_clients -= 1
+                if _sse_clients <= 0:
+                    if _sse_grace_timer is not None:
+                        _sse_grace_timer.cancel()
+                    _sse_grace_timer = threading.Timer(SSE_GRACE, _request_shutdown)
+                    _sse_grace_timer.daemon = True
+                    _sse_grace_timer.start()
+    resp = Response(stream(), mimetype='text/event-stream')
+    resp.headers['Cache-Control'] = 'no-cache'
+    resp.headers['X-Accel-Buffering'] = 'no'
+    return resp
+
+
 if __name__ == '__main__':
     init_db()
     print("Server running at http://127.0.0.1:5000")
-    app.run(debug=True, host='127.0.0.1', port=5000)
+    # threaded=True：SSE 長連線會佔住一條執行緒，其他輪詢請求需另開執行緒才不會被卡住
+    app.run(debug=True, host='127.0.0.1', port=5000, threaded=True)

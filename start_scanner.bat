@@ -1,2 +1,2 @@
 @echo off
-powershell -Command "Start-Process powershell -ArgumentList '-NoExit', '-Command', 'cd ''%~dp0''; python scanner.py' -Verb RunAs"
+powershell -Command "Start-Process pythonw -ArgumentList 'scanner.py' -WorkingDirectory '%~dp0' -Verb RunAs -WindowStyle Hidden"

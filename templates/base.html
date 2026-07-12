@@ -61,7 +61,7 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
     (function () {
-        const PHASE_LABEL = {scanning_self: '我的價格', scanning_friend: '好友價格'};
+        const PHASE_LABEL = {scanning_self: '我的價格', scanning_friend: '好友價格', scanning_stockpile: '持有'};
         const indicators = document.querySelectorAll('.scan-indicator');
         const sections = document.querySelectorAll('.region-section');
         let prevPhase = 'idle';
@@ -230,6 +230,10 @@
         }
         setInterval(pollStatus, 1500);
         pollStatus();
+
+        // 關網頁自動收工：保持一條 SSE 長連線，分頁一關連線就斷，Flask 端據此結束整組程式。
+        // EventSource 斷線會自動重連（例如 reload），所以只有真正關閉分頁才會觸發收工。
+        try { window._aliveES = new EventSource('/api/alive'); } catch (e) {}
     })();
     </script>
     <script>

@@ -42,12 +42,16 @@ from ocr.image_matcher import identify_items_by_image, get_card_positions, ident
 flask_process = None
 f2_queue = Queue()
 f3_queue = Queue()
+f4_queue = Queue()  # F4：專掃「目前持有」囤貨，獨立於 F2/F3 狀態機
 last_f2_region = None  # F2 掃完後記錄區域，F3 只在該區域內比對
 my_scan_active = threading.Event()  # F2 辨識中，F3 需等待避免畫面混淆
 f2_ready = threading.Event()  # F2 已成功完成過至少一次且目前未在跑，F3 才能處理
 
 SCAN_STATUS_FILE = Path(__file__).parent / 'data' / 'scan_status.json'
 HEARTBEAT_FILE = Path(__file__).parent / 'data' / 'heartbeat.json'
+# 網頁全部關閉時，Flask 端寫此旗標；scanner 讀到就結束整組程式
+SHUTDOWN_FILE = Path(__file__).parent / 'data' / 'shutdown.flag'
+LOG_FILE = Path(__file__).parent / 'data' / 'scanner.log'
 # F3 好友掃描的原始 OCR 診斷 log：每列原文/座標/信心，方便事後查名字/價格認錯
 FRIEND_OCR_DEBUG_LOG = Path(__file__).parent / 'data' / 'friend_ocr_debug.log'
 _shutdown_event = threading.Event()
@@ -123,6 +127,20 @@ def clear_pending_f2():
     _patch_status_field('pending_f2', None)
 
 
+def _setup_output():
+    """pythonw 啟動時沒有 console，sys.stdout/stderr 為 None，print 會直接炸。
+    導向 data/scanner.log，讓隱藏視窗模式仍能事後查 F4/OCR 有沒有出錯。"""
+    if sys.stdout is not None:
+        return
+    try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        f = open(LOG_FILE, 'a', encoding='utf-8', buffering=1)
+        sys.stdout = f
+        sys.stderr = f
+    except Exception:
+        pass
+
+
 def ensure_flask():
     """確保 Flask 在運行，如果沒有就啟動它。"""
     global flask_process
@@ -134,7 +152,7 @@ def ensure_flask():
     flask_process = subprocess.Popen(
         [sys.executable, app_path],
         cwd=os.path.dirname(__file__),
-        creationflags=subprocess.CREATE_NEW_CONSOLE,
+        creationflags=subprocess.CREATE_NO_WINDOW,  # 不顯示 Flask 的黑視窗
     )
     print("  Flask 已自動啟動 (127.0.0.1:5000)")
 
@@ -480,13 +498,7 @@ def process_my_prices(filepath):
                 print(f"  >> {item['item_name']}: {item['price']}")
         saved_count = saved
 
-        # 儲存持有區囤貨
-        stockpile_saved = 0
-        if holdings and region:
-            for h in holdings:
-                upsert_stockpile(h['item_id'], h['price'], region, game_date=game_date)
-                stockpile_saved += 1
-                print(f"  >> [囤貨] {h['item_name']}: {h['price']}")
+        # 囤貨（目前持有）已移至 F4 專鍵處理，F2 不再代勞
 
         # 儲存剩餘配額
         if quota and region:
@@ -494,8 +506,6 @@ def process_my_prices(filepath):
             print(f"  >> [配額] {region_name} 剩餘 {quota['remaining']}/{quota['max']}")
 
         print(f"\n  已儲存 {saved} 筆自己的價格 ({region_name})")
-        if stockpile_saved:
-            print(f"  已記錄 {stockpile_saved} 筆囤貨")
         ensure_flask()
         print(f"  重新整理網頁即可查看")
 
@@ -886,6 +896,91 @@ def scan_friend_prices():
 
 
 
+def process_stockpile(filepath):
+    """F4: 只辨識「目前持有」區並儲存囤貨（與 F2 市場掃描分離）。"""
+    global _completed_count
+    set_scan_status('scanning_stockpile', None)
+    try:
+        print("  OCR 辨識中...")
+        ocr_results = recognize(filepath)
+        print(f"  OCR 找到 {len(ocr_results)} 個文字區塊")
+        items_db = get_all_items()
+
+        # 找「市場」標題的 y，持有區在它上方
+        market_y = 0
+        for block in ocr_results:
+            if '市場' in block['text']:
+                market_y = block['center_y']
+                break
+
+        holdings = parse_holding_area(ocr_results, market_y, items_db)
+        if not holdings:
+            print("  未辨識到持有中的囤貨")
+            set_scan_status('idle', error='未辨識到「目前持有」，請確認畫面停在物資調度頁再按 F4')
+            return
+
+        region = detect_region(holdings)
+        region_name = REGIONS.get(region, region) if region else "未知"
+        if region:
+            set_scan_status('scanning_stockpile', region)
+
+        game_date = get_game_date()
+        saved = 0
+        for h in holdings:
+            r = region
+            if not r:
+                # 保險：無法整體判斷區域時，用該物品自己的區域
+                item = next((it for it in items_db if it['id'] == h['item_id']), None)
+                r = item['region'] if item else None
+            if not r:
+                continue
+            upsert_stockpile(h['item_id'], h['price'], r, game_date=game_date)
+            saved += 1
+            print(f"  >> [囤貨] {h['item_name']}: {h['price']}")
+
+        if saved:
+            print(f"\n  已記錄 {saved} 筆囤貨 ({region_name})")
+            ensure_flask()
+            print(f"  重新整理網頁即可查看")
+            set_scan_status('idle', error='')
+        else:
+            set_scan_status('idle', error='囤貨辨識到但無法判斷區域，請重試')
+
+    except Exception as e:
+        print(f"  錯誤: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        _completed_count += 1
+        set_scan_status('idle')
+
+
+def scan_stockpile():
+    """F4: 立刻截圖，丟進佇列背景處理囤貨。"""
+    print(f"\n{'='*50}")
+    print(f"[F4] 掃描目前持有（囤貨）")
+    print(f"{'='*50}")
+    try:
+        filepath = capture_foreground_window()
+        print(f"  截圖已儲存: {filepath}")
+        f4_queue.put(filepath)
+    except Exception as e:
+        print(f"  截圖錯誤: {e}")
+
+
+def watchdog_web_closed():
+    """Flask 端偵測到網頁全部關閉會寫 shutdown.flag，讀到就觸發整組收工。"""
+    while not _shutdown_event.is_set():
+        try:
+            if SHUTDOWN_FILE.exists():
+                print("\n網頁已關閉，自動結束掃描器...")
+                _shutdown_event.set()
+                return
+        except Exception:
+            pass
+        time.sleep(1)
+
+
 def watchdog_heartbeat(grace=30, timeout=15):
     """網頁每 2 秒 POST /api/heartbeat 更新 heartbeat.json。
     若超過 `timeout` 秒沒心跳（啟動 `grace` 秒後開始檢查），視為網頁已關閉，觸發退出。"""
@@ -982,8 +1077,27 @@ def worker_f3():
         f3_queue.task_done()
 
 
+def worker_f4():
+    """背景執行緒：依序處理 F4 佇列中的囤貨截圖。獨立於 F2/F3 狀態機。"""
+    while True:
+        filepath = f4_queue.get()
+        if filepath is None:
+            break
+        print(f"\n  [F4 處理中] {os.path.basename(filepath)}")
+        process_stockpile(filepath)
+        f4_queue.task_done()
+
+
 def main():
+    _setup_output()  # pythonw（無 console）時把輸出導到 log，避免 print 崩潰
     init_db()
+
+    # 清掉上一輪殘留的收工旗標，避免一啟動就被誤判關閉
+    try:
+        if SHUTDOWN_FILE.exists():
+            SHUTDOWN_FILE.unlink()
+    except Exception:
+        pass
 
     print("=" * 50)
     print("  彈性物資價格掃描器")
@@ -991,6 +1105,7 @@ def main():
     print()
     print("  F2  = 掃描自己的市場價格")
     print("  F3  = 掃描好友的市場價格")
+    print("  F4  = 掃描目前持有（囤貨）")
     print("  Ctrl+Shift+Q = 結束程式")
     print()
     print("  * 區域自動偵測（不需手動切換）")
@@ -1024,15 +1139,19 @@ def main():
     # 啟動背景處理執行緒
     t2 = threading.Thread(target=worker_f2, daemon=True)
     t3 = threading.Thread(target=worker_f3, daemon=True)
+    t4 = threading.Thread(target=worker_f4, daemon=True)
     t2.start()
     t3.start()
+    t4.start()
 
     keyboard.on_press_key('f2', lambda _: scan_my_prices())
     keyboard.on_press_key('f3', lambda _: scan_friend_prices())
+    keyboard.on_press_key('f4', lambda _: scan_stockpile())
 
     # 熱鍵監聽：Ctrl+Shift+Q 觸發關閉
-    # （心跳自動關閉模式已移除，因瀏覽器對背景分頁 throttle 會造成誤判）
     threading.Thread(target=quit_hotkey_listener, daemon=True).start()
+    # 關網頁自動收工：Flask 端偵測分頁全關會寫 shutdown.flag（SSE 長連線，不受背景 throttle 影響）
+    threading.Thread(target=watchdog_web_closed, daemon=True).start()
 
     _shutdown_event.wait()
 
