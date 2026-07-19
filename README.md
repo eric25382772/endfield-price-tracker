@@ -25,13 +25,20 @@
 <img width="1451" height="968" alt="image" src="https://github.com/user-attachments/assets/5dd9cee8-601f-4427-87b4-7e10ea271978" />
 <img width="1247" height="602" alt="image" src="https://github.com/user-attachments/assets/6cc2c064-e716-490d-b032-8822505c5385" />
 
-2. 雙擊執行，一路「下一步」到完成
-   - 安裝過程會自動連網下載並安裝 Python 3.12（若電腦沒裝過）
-   - 再下載所需套件與 OCR 中文模型（約 300-500 MB）
-   - 全程約 10-15 分鐘，畫面偶爾停住是正常的，請勿關閉
+2. 雙擊執行
+<img width="1136" height="628" alt="image" src="https://github.com/user-attachments/assets/9527fece-1f71-44be-be79-c864bb08fcdd" />
+若 Windows SmartScreen 跳警告，點「其他資訊 → 仍要執行」。
+<img width="541" height="500" alt="image" src="https://github.com/user-attachments/assets/f0a7e39f-86d4-401b-972e-65a6cd887d6c" />
+<img width="578" height="515" alt="image" src="https://github.com/user-attachments/assets/be63cbcb-98c1-4524-9267-dc2e9c48b9e0" />
+  一路「下一步」到完成
+<img width="638" height="493" alt="image" src="https://github.com/user-attachments/assets/acb9179e-1353-4f63-8876-fbdd1f31f9a8" />
+<img width="646" height="498" alt="image" src="https://github.com/user-attachments/assets/11e53550-e7b3-4f6c-995d-ef14f42265cb" />
+<img width="650" height="494" alt="image" src="https://github.com/user-attachments/assets/154156fd-5e90-40bd-bb1c-5feb94d14228" />
+<img width="648" height="504" alt="image" src="https://github.com/user-attachments/assets/df0d46c5-f85d-4d1d-ae90-00bf19200fbe" />
+
 3. 完成後雙擊桌面的「終末地追蹤器」捷徑啟動（會自動請求管理員權限）
 
-若 Windows SmartScreen 跳警告，點「其他資訊 → 仍要執行」。
+
 
 ## 使用方式
 
