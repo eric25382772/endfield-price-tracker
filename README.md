@@ -42,6 +42,9 @@
 
 3. 完成後雙擊桌面的「終末地追蹤器」捷徑啟動（會自動請求管理員權限）
 
+<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/d9a233ec-4fd1-40da-af13-f8191d7edf12" />
+<img width="510" height="381" alt="image" src="https://github.com/user-attachments/assets/827bc291-3dc2-4c4e-acd7-488274e482b4" />
+
 
 
 ## 使用方式
