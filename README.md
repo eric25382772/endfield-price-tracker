@@ -27,7 +27,9 @@
 
 2. 雙擊執行
 <img width="1136" height="628" alt="image" src="https://github.com/user-attachments/assets/9527fece-1f71-44be-be79-c864bb08fcdd" />
+
 若 Windows SmartScreen 跳警告，點「其他資訊 → 仍要執行」。
+
 <img width="541" height="500" alt="image" src="https://github.com/user-attachments/assets/f0a7e39f-86d4-401b-972e-65a6cd887d6c" />
 <img width="578" height="515" alt="image" src="https://github.com/user-attachments/assets/be63cbcb-98c1-4524-9267-dc2e9c48b9e0" />
   一路「下一步」到完成
