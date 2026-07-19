@@ -35,6 +35,6 @@ if errorlevel 1 (
 echo.
 echo ========================================
 echo  [OK] 安裝精靈已產出：
-echo  %~dp0..\EndfieldTracker_Setup_v4.2.exe
+echo  %~dp0..\EndfieldTracker_Setup_v5.0.exe
 echo ========================================
 pause
