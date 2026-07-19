@@ -158,12 +158,21 @@ def ensure_flask():
 
 
 def get_foreground_window_rect():
-    """Get the foreground window's position and size using Win32 API."""
+    """Get the foreground window's CLIENT area (純遊戲畫面) in screen coords.
+
+    用 client area 而非整個 window rect：視窗模式下才能排除標題列／邊框，
+    讓卡位座標的 2560x1440 比例縮放對得上。全螢幕無邊框時 client == window，
+    尺寸與行為完全不變。"""
     user32 = ctypes.windll.user32
     hwnd = user32.GetForegroundWindow()
 
-    rect = ctypes.wintypes.RECT()
-    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+    # client area 尺寸（left/top 恆為 0，不含標題列與邊框）
+    client = ctypes.wintypes.RECT()
+    user32.GetClientRect(hwnd, ctypes.byref(client))
+
+    # 把 client 左上角 (0,0) 轉成螢幕座標，得到擷取起點
+    pt = ctypes.wintypes.POINT(0, 0)
+    user32.ClientToScreen(hwnd, ctypes.byref(pt))
 
     # Get window title for logging
     length = user32.GetWindowTextLengthW(hwnd)
@@ -172,10 +181,10 @@ def get_foreground_window_rect():
     title = buf.value
 
     return {
-        'left': rect.left,
-        'top': rect.top,
-        'width': rect.right - rect.left,
-        'height': rect.bottom - rect.top,
+        'left': pt.x,
+        'top': pt.y,
+        'width': client.right - client.left,
+        'height': client.bottom - client.top,
         'title': title
     }
 
@@ -472,6 +481,7 @@ def process_my_prices(filepath):
     my_scan_active.set()
     set_scan_status('scanning_self', None)
     saved_count = 0
+    region = None
     try:
         parsed, region, holdings, quota = scan_with_image_match(filepath)
         if region:
@@ -522,10 +532,11 @@ def process_my_prices(filepath):
                 # F3 在排隊，狀態交給 worker_f3 接手寫，避免 idle 閃爍
                 pass
             else:
-                set_scan_status('idle', error='')
+                # 帶上剛掃到的地區，網頁完成時才能自動跳到該分頁
+                set_scan_status('idle', region=region, error='')
         else:
             # F2 沒存入任何價格：f2_ready 保持 clear，F3 繼續等下次 F2
-            set_scan_status('idle', error='自己市場掃描未辨識到任何價格，請重新按 F2')
+            set_scan_status('idle', region=region, error='自己市場掃描未辨識到任何價格，請重新按 F2')
             print("  [!] 本次自己市場掃描未存入任何價格，好友比對將等待下次成功掃描")
 
 

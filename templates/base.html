@@ -156,8 +156,9 @@
             const region = d.region || null;
             const completed = (typeof d.completed === 'number') ? d.completed : null;
 
-            // /compare：辨識出地區就自動跳到該地區分頁（也寫進記憶，reload 後維持）
-            if (region && window.setCompareRegion && region !== window._compareRegion) {
+            // /compare：掃描中辨識出地區就自動跳到該地區分頁（也寫進記憶，reload 後維持）
+            // 限 phase !== 'idle'：完成後 region 仍保留在狀態裡，不加此限會反過來蓋掉使用者手動切的分頁
+            if (region && phase !== 'idle' && window.setCompareRegion && region !== window._compareRegion) {
                 window.setCompareRegion(region);
             }
             const errorBanner = document.getElementById('scan-error-banner');
@@ -197,6 +198,8 @@
             // 每完成一張截圖處理，scanner 會 +1，網頁立刻 reload 顯示最新結果
             if (completed !== null && lastCompleted !== null
                 && completed > lastCompleted && location.pathname === '/compare') {
+                // 先跳到剛掃到的地區（存進記憶），reload 後才會停在該區而非上次看的分頁
+                if (region && window.setCompareRegion) window.setCompareRegion(region);
                 location.reload();
                 return;
             }
