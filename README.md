@@ -45,6 +45,10 @@
 <img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/d9a233ec-4fd1-40da-af13-f8191d7edf12" />
 <img width="510" height="381" alt="image" src="https://github.com/user-attachments/assets/827bc291-3dc2-4c4e-acd7-488274e482b4" />
 
+4.看到正在開啟網頁表示安裝成功啟動中(首次開啟會較慢 要載入OCR模型)
+
+<img width="400" height="170" alt="image" src="https://github.com/user-attachments/assets/fd529faf-ab45-4a8d-8049-aaf67ba889d1" />
+
 
 
 ## 使用方式
