@@ -37,10 +37,11 @@
 ## Release workflow
 
 - **版本號規則（三碼）：** 主版號（v2.x）= 遊戲內容改版；次版號 = 新功能/新流程；**第三碼 = 修正/優化**（例 v4.0 → v4.0.1）。修正既有功能、調語意/邏輯、改門檻、補警告這類都升第三碼，不動次版號
-- 每版要同步改 **3 個地方**（少改任何一個都會脫節）：
+- 每版要同步改 **4 個地方**（少改任何一個都會脫節）：
   1. [CHANGELOG.md](CHANGELOG.md) 加一行
-  2. [README.md](README.md) 開頭的「目前 GitHub 上架版本」
+  2. [README.md](README.md) 的**兩處**版號：開頭「目前 GitHub 上架版本」＋「版本更新紀錄」段的「最新版本」（v5.0 前只改開頭那處，導致下面那行從 v4.0 起長期脫節）
   3. [installer/EndfieldTracker.iss](installer/EndfieldTracker.iss) 的 `#define MyAppVersion`（決定 setup.exe 檔名 + 安裝程式顯示的版本；v2.1.1/v3.0 都漏掉這個，到 v3.1 才補齊）
+  4. [installer/build.bat](installer/build.bat) 成功訊息裡的 `EndfieldTracker_Setup_vX.Y.exe` 檔名
 - setup.exe 用 Inno Setup 編譯，工具鏈與步驟看 [installer/README.md](installer/README.md)
 - **「修自己沒做對」不算升版：** 若上一版功能實作有誤、後續修正屬於該版完成，把改動合進原 CHANGELOG 條目；不要為了補做開新版號
 

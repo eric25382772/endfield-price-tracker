@@ -54,7 +54,7 @@
 
 ## 版本更新紀錄
 
-詳見 [CHANGELOG.md](CHANGELOG.md)。最新版本：**v4.0**。
+詳見 [CHANGELOG.md](CHANGELOG.md)。最新版本：**v5.0**。
 
 ## 注意事項
 
