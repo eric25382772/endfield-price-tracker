@@ -648,6 +648,16 @@ def api_alive():
     return resp
 
 
+@app.route('/api/web_ready')
+def api_web_ready():
+    """scanner 用：網頁是否真的載入了（上面那條 SSE 已連上）。
+
+    webbrowser.open() 只是把瀏覽器叫起來就回傳，不代表頁面已經出現；
+    scanner 要等這裡回 ready 才收掉啟動提示視窗，避免「視窗關了頁面還沒來」。"""
+    with _sse_lock:
+        return jsonify(ready=_sse_clients > 0)
+
+
 if __name__ == '__main__':
     init_db()
     print("Server running at http://127.0.0.1:5000")

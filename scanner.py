@@ -13,6 +13,7 @@ import time
 import json
 import ctypes
 import ctypes.wintypes
+import socket
 import tempfile
 import subprocess
 import threading
@@ -155,6 +156,109 @@ def ensure_flask():
         creationflags=subprocess.CREATE_NO_WINDOW,  # 不顯示 Flask 的黑視窗
     )
     print("  Flask 已自動啟動 (127.0.0.1:5000)")
+
+
+def wait_for_flask(timeout=60):
+    """輪詢 127.0.0.1:5000 直到 Flask 開始接受連線。回傳是否在時限內就緒。
+    取代舊的固定 sleep(1.5)：第一次啟動 Flask 冷載入較久，固定等待會讓瀏覽器先開到『拒絕連線』。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            with socket.create_connection(('127.0.0.1', 5000), timeout=1):
+                return True
+        except OSError:
+            time.sleep(0.3)
+    return False
+
+
+def wait_for_web_page(timeout=30):
+    """輪詢 /api/web_ready 直到網頁真的連上（SSE 已建立）。回傳是否在時限內就緒。
+
+    webbrowser.open() 只是把瀏覽器叫起來就回傳，瀏覽器冷啟動＋渲染還要好幾秒；
+    直接關掉提示視窗會出現「視窗沒了但頁面還沒出現」的空窗。逾時仍會放行，
+    避免瀏覽器開不起來時視窗一直掛著。"""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            import urllib.request
+            with urllib.request.urlopen(
+                    'http://127.0.0.1:5000/api/web_ready', timeout=1) as r:
+                if json.loads(r.read().decode('utf-8')).get('ready'):
+                    return True
+        except Exception:
+            pass
+        time.sleep(0.3)
+    return False
+
+
+def show_splash():
+    """啟動時彈一個無邊框提示視窗（含實心進度綠條），讓使用者知道正在開啟、不是沒反應。
+    在獨立執行緒跑自己的 Tk mainloop，不擋主執行緒後續載入 OCR；綠條在 tick 裡平滑往前爬向
+    目標值（ease-out），所以就算某階段等較久也是持續前進，不會死在原地、也不是跑馬燈。
+    回傳 (update, close)：update(text, percent) 換文字並設目標進度、close() 立即關閉視窗。"""
+    msg_q = Queue()
+    ready = threading.Event()
+
+    def run():
+        try:
+            import tkinter as tk
+            from tkinter import ttk
+        except Exception:
+            ready.set()
+            return
+        root = tk.Tk()
+        root.overrideredirect(True)
+        root.attributes('-topmost', True)
+        w, h = 380, 150
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+        root.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 2}")
+        root.configure(bg='#1b1b1f')
+        tk.Label(root, text='終末地彈性物資價格追蹤器', fg='#e6c86e', bg='#1b1b1f',
+                 font=('Microsoft JhengHei', 12, 'bold')).pack(pady=(26, 8))
+        status = tk.Label(root, text='正在啟動…', fg='#dddddd', bg='#1b1b1f',
+                          font=('Microsoft JhengHei', 10))
+        status.pack()
+        pb = ttk.Progressbar(root, mode='determinate', maximum=100, length=300)
+        pb.pack(pady=18)
+        state = {'target': 8.0, 'value': 0.0, 'closing': False}
+
+        def tick():
+            # 收到關閉訊號就立刻收掉，不再等進度條爬到 100%（網頁已開就不該再佔著畫面）
+            if state['closing']:
+                root.destroy()
+                return
+            t, v = state['target'], state['value']
+            if v < t:
+                v = min(t, v + max(0.35, (t - v) * 0.06))
+                state['value'] = v
+                pb['value'] = v
+            root.after(30, tick)
+
+        def poll():
+            try:
+                while True:
+                    item = msg_q.get_nowait()
+                    if item is None:
+                        state['closing'] = True
+                        state['target'] = 100.0
+                    else:
+                        text, percent = item
+                        if text is not None:
+                            status.config(text=text)
+                        if percent is not None:
+                            state['target'] = float(percent)
+            except Exception:
+                pass
+            root.after(80, poll)
+
+        root.after(30, tick)
+        root.after(80, poll)
+        ready.set()
+        root.mainloop()
+
+    threading.Thread(target=run, daemon=True).start()
+    ready.wait(timeout=5)
+    return (lambda text=None, percent=None: msg_q.put((text, percent))), (lambda: msg_q.put(None))
 
 
 def get_foreground_window_rect():
@@ -1101,6 +1205,11 @@ def worker_f4():
 
 def main():
     _setup_output()  # pythonw（無 console）時把輸出導到 log，避免 print 崩潰
+
+    # 提示視窗最先建立：後面的 init_db／Flask／OCR 在乾淨機器上都可能慢，
+    # 晚一步建立就會讓人以為程式沒反應（首次啟動尤其明顯）
+    update_splash, close_splash = show_splash()
+
     init_db()
 
     # 清掉上一輪殘留的收工旗標，避免一啟動就被誤判關閉
@@ -1128,26 +1237,25 @@ def main():
     print()
 
     # 啟動 Flask
+    update_splash('正在啟動伺服器…', 20)
     ensure_flask()
     set_scan_status('idle', error='')
-    # 等 Flask 起來再開瀏覽器（避免第一次連線失敗）
-    time.sleep(1.5)
+    # 輪詢等 Flask 真的能連了再開瀏覽器（第一次冷載入較久，固定等待會開到『拒絕連線』）
+    update_splash('正在開啟網頁…', 45)
+    wait_for_flask(60)
     try:
         webbrowser.open('http://127.0.0.1:5000/compare')
     except Exception:
         pass
+    # 等網頁真的連上再收視窗：open() 只是把瀏覽器叫起來就回傳，
+    # 立刻關會變成「視窗沒了但頁面還沒出現」
+    update_splash('正在開啟網頁…', 75)
+    wait_for_web_page(30)
+    close_splash()
     print()
 
-    # Pre-load OCR engine
-    print("  正在載入 OCR 引擎（首次較慢）...")
-    from ocr.engine import get_ocr
-    get_ocr()
-    print("  OCR 引擎已就緒！")
-    print()
-    print("  等待中... 請在遊戲市場畫面按 F2 或 F3")
-    print()
-
-    # 啟動背景處理執行緒
+    # 熱鍵與背景執行緒先掛上，讓網頁一出現就真的能按 F2。
+    # OCR 還在預載時按也沒關係：截圖會先進佇列，引擎就緒後照常處理。
     t2 = threading.Thread(target=worker_f2, daemon=True)
     t3 = threading.Thread(target=worker_f3, daemon=True)
     t4 = threading.Thread(target=worker_f4, daemon=True)
@@ -1163,6 +1271,15 @@ def main():
     threading.Thread(target=quit_hotkey_listener, daemon=True).start()
     # 關網頁自動收工：Flask 端偵測分頁全關會寫 shutdown.flag（SSE 長連線，不受背景 throttle 影響）
     threading.Thread(target=watchdog_web_closed, daemon=True).start()
+
+    # Pre-load OCR engine：熱鍵此時已可用，這段純粹先暖機讓第一次掃描不用等
+    print("  正在載入 OCR 引擎（首次較慢）...")
+    from ocr.engine import get_ocr
+    get_ocr()
+    print("  OCR 引擎已就緒！")
+    print()
+    print("  等待中... 請在遊戲市場畫面按 F2 或 F3")
+    print()
 
     _shutdown_event.wait()
 

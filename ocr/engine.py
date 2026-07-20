@@ -1,15 +1,30 @@
-import easyocr
+import threading
+
+# 注意：easyocr（連帶 torch）刻意「不」在模組層 import。
+# 它是啟動路徑上最重的一塊（乾淨機器首次要十幾秒），模組層 import 會讓
+# scanner 的啟動提示視窗遲遲跳不出來。改在真正要建 reader 時才載入。
 
 # 依語言組合快取多個 reader（EasyOCR 規定中/日/韓各自獨立、只能配英文，不能併在同一個 reader）
 _readers = {}
+_readers_lock = threading.Lock()
 
 
 def _get_reader(langs):
-    """取得（或建立）指定語言組合的 EasyOCR reader 單例。"""
+    """取得（或建立）指定語言組合的 EasyOCR reader 單例。
+
+    加鎖原因：熱鍵在 OCR 預載完成前就已註冊，主執行緒的預載與 worker 的
+    掃描可能同時要同一個 reader；無鎖會各自建一個、重複載入模型。"""
+    import easyocr  # 延後載入：見檔頭說明
     key = tuple(langs)
-    if key not in _readers:
-        _readers[key] = easyocr.Reader(list(langs), gpu=False)
-    return _readers[key]
+    reader = _readers.get(key)
+    if reader is not None:
+        return reader
+    with _readers_lock:
+        reader = _readers.get(key)
+        if reader is None:
+            reader = easyocr.Reader(list(langs), gpu=False)
+            _readers[key] = reader
+    return reader
 
 
 def get_ocr():
