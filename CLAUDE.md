@@ -34,66 +34,13 @@
   - 改 OCR / scanner → 動 code 後請使用者按 F2/F3 實測
   - 改 UI → 直接看 http://127.0.0.1:5000/compare
 
-## Release workflow
+## 細部規則放哪裡
 
-- **版本號規則（三碼）：** 主版號（v2.x）= 遊戲內容改版；次版號 = 新功能/新流程；**第三碼 = 修正/優化**（例 v4.0 → v4.0.1）。修正既有功能、調語意/邏輯、改門檻、補警告這類都升第三碼，不動次版號
-- 每版要同步改 **4 個地方**（少改任何一個都會脫節）：
-  1. [CHANGELOG.md](CHANGELOG.md) 加一行
-  2. [README.md](README.md) 的**兩處**版號：開頭「目前 GitHub 上架版本」＋「版本更新紀錄」段的「最新版本」（v5.0 前只改開頭那處，導致下面那行從 v4.0 起長期脫節）
-  3. [installer/EndfieldTracker.iss](installer/EndfieldTracker.iss) 的 `#define MyAppVersion`（決定 setup.exe 檔名 + 安裝程式顯示的版本；v2.1.1/v3.0 都漏掉這個，到 v3.1 才補齊）
-  4. [installer/build.bat](installer/build.bat) 成功訊息裡的 `EndfieldTracker_Setup_vX.Y.exe` 檔名
-- setup.exe 用 Inno Setup 編譯，工具鏈與步驟看 [installer/README.md](installer/README.md)
-- **「修自己沒做對」不算升版：** 若上一版功能實作有誤、後續修正屬於該版完成，把改動合進原 CHANGELOG 條目；不要為了補做開新版號
+過去踩過的坑已拆成 path-scoped rules，動到對應檔案時會自動載入：
 
-## 鐵則（過去踩過的坑，不要違反）
+| 檔案 | 涵蓋範圍 |
+|---|---|
+| [.claude/rules/ocr-scanner.md](.claude/rules/ocr-scanner.md) | `scanner.py` / `ocr/**` — 好友列表兩道過濾、同類型圖片比對、參考圖不可覆寫、F2/F3 順序 |
+| [.claude/rules/item-assets.md](.claude/rules/item-assets.md) | `data/models.py` / `item_images/**` — 新增物品的圖要放兩處、sqlite_sequence 陷阱 |
 
-### 好友列表 OCR 必須維持兩道過濾
-
-動 [scanner.py](scanner.py) 的 `parse_friend_list` 時：
-
-1. **價格 x 範圍：** `block['center_x'] < img_width * 0.75`（避開右邊百分比欄）
-2. **單調遞減過濾：** 好友列表必為「販售價由高到低」，遇到反常變高的就視為雜訊跳過
-
-**Why:** v2.0 實測時 OCR 把 `▲51.1%` 讀成 `5110`，只靠 x 範圍仍漏，必須兩道一起。
-
-### 好友參考圖是固定資產
-
-[data/item_images/friend/](data/item_images/friend/) 的 `item_*.png` 不可批次刪除、不可自動覆寫。F4 重置功能與 `save_friend_reference` 自動覆寫已在 v1.8 移除。新增物品時由開發者手動裁切放入。
-
-**Why:** 自動覆寫一旦辨識錯就把錯圖存回，惡性循環越來越差（曾把 item_2.png 從 89KB 劣化到 11KB）。
-
-### 圖片比對要同類型
-
-好友畫面只能用 [data/item_images/friend/](data/item_images/friend/) 的同類型參考圖比對，不能拿市場小卡套。
-
-**Why:** 比例 / 背景 / 角度差太大，ORB / HSV / 模板匹配全都跨類型不可靠。
-
-### 開發機改 items seed 前先檢查 sqlite_sequence
-
-本機 `items` 表 seq 可能因多次 reset 飆高。新增物品 seed 前先：
-
-```sql
-SELECT seq FROM sqlite_sequence WHERE name='items';  -- 對比 SELECT MAX(id) FROM items
--- 若 seq 遠大於 max(id)，先 UPDATE sqlite_sequence SET seq=<max_id>
-```
-
-**Why:** v2.0 加 item_18/19 時踩過，本機 seq=4409 導致新 item 拿到 4370/4371，破壞 image_matcher 的 `range(13, 20)` 硬編碼。一般使用者升級時不會踩到，只發生在開發機。
-
-**重設時機很重要：** [data/models.py](data/models.py) 的 `init_db()` 用 `INSERT OR IGNORE`，SQLite AUTOINCREMENT 連被 IGNORE 的 row 也會消耗 seq（每次啟動 +N，N=items 數）。所以 seq 重設要在「使用者重啟 scanner 之前」做，不能在改 code 之前就重設、之後又被 scanner 重啟推回去。v3.0 加 item_20 時踩過：先重設 seq=19，使用者重啟 scanner 後 seq 被推到 79，item_20 拿到 id=39。
-
-**單純重設 seq 到 max_id 救不回乾淨 id（v5.0 實測補充）：** seed 迴圈會先跑 N 個既有物品（每個 IGNORE 都把 seq 推 +1），輪到新物品時 seq 早已越過 max_id，新物品仍拿到 40 幾的 id。最可靠做法是**直接用顯式 id INSERT** 新物品（`INSERT OR IGNORE INTO items (id, name_cn, ...) VALUES (22, ...)`），之後重啟 seed 靠 name UNIQUE 略過，id 永遠對齊。
-
-### 新增物品的市場圖要放「兩個地方」
-
-新增 item 時，市場小卡 PNG 要同時複製到：
-
-1. [data/item_images/](data/item_images/) — **辨識用**（image_matcher 讀這裡）
-2. [static/images/items/](static/images/items/) — **compare 頁縮圖用**（`compare.html` 走 `/static/images/items/item_N.png`）
-
-**Why:** 兩份是分開的路徑——歷史／預測頁走 `/item_image/<id>`（讀 data），compare 頁走 `/static/`（讀 static）。只放 data 會導致辨識正常但 /compare 縮圖破圖。v4.x 加 item_21、v5.0 加 item_22/23 都漏過 static 這份。好友參考圖 [data/item_images/friend/](data/item_images/friend/) 只有一份（掃描專用），不受此影響。
-
-**兩份的裁切區域可以不同：** data 辨識版務必維持 image_matcher 的卡位區域（row1 y 420-660）才能跟 live 掃描同框比對；static 顯示版只求好看，若物品美術位置偏低（v5.0 的 item_22/23 美術落在 y≈470-710，用辨識框會被切一半），另裁一個框住整個物品的區域放 static 即可。
-
-### F2 / F3 順序硬規則（v2.1 起）
-
-F3 必須等 F2 至少成功跑過一次才會處理；F3 排隊或處理中時按 F2 會彈確認 modal。改 scanner 狀態機時不要拿掉這個保護。
+發版流程是多步驟程序，走 skill：**`/release`**（版號規則 + 4 處同步 + push + 編 setup.exe + gh release）。

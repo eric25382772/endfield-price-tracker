@@ -17,7 +17,9 @@ dist/
 build/
 .env
 venv/
-.claude/
+.claude/*
+!.claude/rules/
+!.claude/skills/
 data/item_images/_debug_*
 installer/InnoDownloadPlugin/
 installer/python-*.exe
