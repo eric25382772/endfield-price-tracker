@@ -1,5 +1,10 @@
 # 版本更新紀錄
 
+## v5.0.3
+- **修正啟動時隨機閃退（`Tcl_AsyncDelete` 崩潰）**：v5.0.2 新增的啟動提示視窗把 tkinter 放在獨立執行緒建立，關閉時 Tk 物件與其 `after` 回呼（進度條動畫）形成參照環、refcount 收不掉，殘留到主執行緒的循環 GC 才回收；Tk 一旦在「非建立它的執行緒」被 finalize，就會拋 `Tcl_AsyncDelete: async handler deleted by the wrong thread` 直接 abort 整個行程——表現為載入 OCR 那步隨機靜默閃退、網頁打不開、F2／F3 全無反應（且因是 C 層 abort，連 Python 例外處理都攔不到）。改為 `mainloop` 結束後在建立 Tk 的那條執行緒上主動丟參照 + `gc.collect()`，讓 Tkapp 在正確的執行緒釋放
+- **背景殘留自我修復**：啟動時自動清掉上一輪沒關乾淨的殘留實例（依 PID 登記檔 + 佔用 5000 埠者，只認 python／pythonw），採「清掉再開」而非「已在執行就拒絕」，確保使用者不會被卡在外面；避免前一輪閃退或手滑多開後，多個實例搶同一組全域 F2／F3 熱鍵而互相卡死失靈
+- **關閉時徹底收工 + Flask 改單一行程**：關網頁／結束時確保整個 Flask 行程樹一併收掉；並關掉 debug reloader（`use_reloader=False`），主行程異常結束時不再留下成對的孤兒 Flask
+
 ## v5.0.2
 - **安裝程式補裝 Visual C++ 執行庫**：乾淨 Windows 缺 VC++ Redistributable 時，PyTorch 的 `c10.dll` 無法載入（`WinError 126`），導致 OCR import 崩潰、追蹤器啟動即靜默閃退、網頁完全打不開；安裝流程新增下載並靜默安裝 `vc_redist.x64.exe`（PyTorch 相依），排在 pip 安裝與 OCR 模型下載之前
 - **修正全新機器套件裝不上**：安裝程式的 pip／OCR 步驟原本靠 PATH 上的 `python`，但剛裝好的 Python 其 PATH 變更不會即時進到安裝行程，全新機器上會找不到（甚至叫出 Microsoft Store 假 python）而靜默失敗、什麼都沒裝；改為以完整路徑直接呼叫 `python.exe`（找不到再退回登錄檔／PATH）

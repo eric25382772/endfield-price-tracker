@@ -52,6 +52,8 @@ SCAN_STATUS_FILE = Path(__file__).parent / 'data' / 'scan_status.json'
 HEARTBEAT_FILE = Path(__file__).parent / 'data' / 'heartbeat.json'
 # 網頁全部關閉時，Flask 端寫此旗標；scanner 讀到就結束整組程式
 SHUTDOWN_FILE = Path(__file__).parent / 'data' / 'shutdown.flag'
+# 記錄本輪 spawn 的 PID（scanner 自己 + Flask），供下次啟動清理沒關乾淨的殘留
+PID_REGISTRY_FILE = Path(__file__).parent / 'data' / 'scanner.pids.json'
 LOG_FILE = Path(__file__).parent / 'data' / 'scanner.log'
 # F3 好友掃描的原始 OCR 診斷 log：每列原文/座標/信心，方便事後查名字/價格認錯
 FRIEND_OCR_DEBUG_LOG = Path(__file__).parent / 'data' / 'friend_ocr_debug.log'
@@ -142,6 +144,92 @@ def _setup_output():
         pass
 
 
+def _register_pid(pid):
+    """把本專案 spawn 的 PID 記進登記檔，供下次啟動 reap_leftover_instances 清理。"""
+    try:
+        pids = []
+        if PID_REGISTRY_FILE.exists():
+            pids = json.loads(PID_REGISTRY_FILE.read_text(encoding='utf-8'))
+        if pid not in pids:
+            pids.append(pid)
+        PID_REGISTRY_FILE.write_text(json.dumps(pids), encoding='utf-8')
+    except Exception:
+        pass
+
+
+def _pid_is_python(pid):
+    """確認 PID 仍存活且是 python/pythonw，避免 PID 重用時誤殺別的程式。"""
+    try:
+        out = subprocess.run(
+            ['tasklist', '/FI', f'PID eq {pid}', '/FO', 'CSV', '/NH'],
+            capture_output=True, text=True, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        ).stdout.lower()
+        return 'python.exe' in out or 'pythonw.exe' in out
+    except Exception:
+        return False
+
+
+def _kill_tree(pid):
+    """用 taskkill /F /T 殺整個行程樹（含 Flask reloader 子行程）。"""
+    try:
+        subprocess.run(
+            ['taskkill', '/F', '/T', '/PID', str(pid)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except Exception:
+        pass
+
+
+def _pid_on_port(port):
+    """回傳正在 LISTEN 指定埠的 PID（找不到回 None）。"""
+    try:
+        out = subprocess.run(
+            ['netstat', '-ano', '-p', 'tcp'],
+            capture_output=True, text=True, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        ).stdout
+        for line in out.splitlines():
+            parts = line.split()
+            # 例：TCP  127.0.0.1:5000  0.0.0.0:0  LISTENING  6940
+            if len(parts) >= 5 and parts[3] == 'LISTENING' and parts[1].endswith(f':{port}'):
+                return int(parts[-1])
+    except Exception:
+        pass
+    return None
+
+
+def reap_leftover_instances():
+    """啟動時自我修復：清掉上一輪沒關乾淨的殘留。
+    來源＝登記檔記錄的 PID ＋ 目前占用 5000 埠者；只碰 python/pythonw，
+    且 5000 埠為本程式專用，不會誤傷其他專案（如 MT5）。"""
+    self_pid = os.getpid()
+    victims = set()
+    try:
+        if PID_REGISTRY_FILE.exists():
+            for pid in json.loads(PID_REGISTRY_FILE.read_text(encoding='utf-8')):
+                if int(pid) != self_pid:
+                    victims.add(int(pid))
+    except Exception:
+        pass
+    port_pid = _pid_on_port(5000)
+    if port_pid and port_pid != self_pid:
+        victims.add(port_pid)
+    killed = []
+    for pid in victims:
+        if _pid_is_python(pid):  # 驗證是 python/pythonw 才殺，避開 PID 重用誤傷
+            _kill_tree(pid)
+            killed.append(pid)
+    if killed:
+        print(f"  已清理上一輪未關乾淨的殘留進程: {killed}")
+    # 登記檔重置為只含自己這一輪
+    try:
+        PID_REGISTRY_FILE.write_text(json.dumps([self_pid]), encoding='utf-8')
+    except Exception:
+        pass
+
+
 def ensure_flask():
     """確保 Flask 在運行，如果沒有就啟動它。"""
     global flask_process
@@ -155,6 +243,7 @@ def ensure_flask():
         cwd=os.path.dirname(__file__),
         creationflags=subprocess.CREATE_NO_WINDOW,  # 不顯示 Flask 的黑視窗
     )
+    _register_pid(flask_process.pid)  # 記下 Flask PID，供下次啟動清理
     print("  Flask 已自動啟動 (127.0.0.1:5000)")
 
 
@@ -255,6 +344,20 @@ def show_splash():
         root.after(80, poll)
         ready.set()
         root.mainloop()
+
+        # mainloop 結束後必做的收尾（否則會 Tcl_AsyncDelete abort 整個進程）：
+        # root 與它 after() 註冊的 tick/poll 回呼互相參照成環，refcount 收不掉，
+        # 會殘留到主執行緒的循環 GC 才回收；Tk 物件一旦在「非建立它的執行緒」被
+        # finalize，就會丟「async handler deleted by the wrong thread」直接 abort。
+        # 解法：在這條（建立 Tk 的）執行緒上主動丟參照 + gc，讓 Tkapp 在此處釋放。
+        try:
+            root.quit()
+        except Exception:
+            pass
+        root = status = pb = None
+        tick = poll = None
+        import gc
+        gc.collect()
 
     threading.Thread(target=run, daemon=True).start()
     ready.wait(timeout=5)
@@ -1219,6 +1322,10 @@ def main():
     except Exception:
         pass
 
+    # 自我修復：清掉上一輪沒關乾淨的殘留實例，再往下綁 5000 埠。
+    # 「清掉再開」而非「已在執行就拒絕」，確保使用者永遠不會被卡在外面。
+    reap_leftover_instances()
+
     print("=" * 50)
     print("  彈性物資價格掃描器")
     print("=" * 50)
@@ -1275,36 +1382,40 @@ def main():
     # Pre-load OCR engine：熱鍵此時已可用，這段純粹先暖機讓第一次掃描不用等
     print("  正在載入 OCR 引擎（首次較慢）...")
     from ocr.engine import get_ocr
-    get_ocr()
-    print("  OCR 引擎已就緒！")
-    print()
-    print("  等待中... 請在遊戲市場畫面按 F2 或 F3")
-    print()
-
-    _shutdown_event.wait()
-
-    # 清理：用 taskkill /F /T 殺整個 Flask 行程樹（debug mode 的 reloader 子行程也要殺）
-    if flask_process and flask_process.poll() is None:
-        try:
-            subprocess.run(
-                ['taskkill', '/F', '/T', '/PID', str(flask_process.pid)],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                timeout=5,
-            )
-        except Exception:
-            try:
-                flask_process.kill()
-            except Exception:
-                pass
-    print("\n程式結束。")
-
-    # 關掉 scanner 自己的 console 視窗
     try:
-        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
-        if hwnd:
-            ctypes.windll.user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
+        get_ocr()
+        print("  OCR 引擎已就緒！")
+        print()
+        print("  等待中... 請在遊戲市場畫面按 F2 或 F3")
+        print()
+        _shutdown_event.wait()
     except Exception:
-        pass
+        # pythonw 無 console 時未捕捉例外會靜默結束、留下孤兒 Flask。
+        # 這裡明確記錄堆疊，方便事後查崩因（原生層崩潰仍不留 Python 堆疊，靠下次 reap 收拾）。
+        import traceback
+        print("  [主流程例外] 掃描器即將結束，堆疊如下：")
+        traceback.print_exc()
+    finally:
+        # 收工：無論正常關閉或例外，都殺整個 Flask 行程樹（debug reloader 子行程也要殺）
+        if flask_process and flask_process.poll() is None:
+            _kill_tree(flask_process.pid)
+        # 保險：5000 埠若仍被本程式殘留占著就一併清掉，確保「關網頁＝背景全部關」
+        leftover = _pid_on_port(5000)
+        if leftover and leftover != os.getpid() and _pid_is_python(leftover):
+            _kill_tree(leftover)
+        # 刪登記檔＝標記這一輪是乾淨退出的
+        try:
+            PID_REGISTRY_FILE.unlink()
+        except Exception:
+            pass
+        print("\n程式結束。")
+        # 關掉 scanner 自己的 console 視窗
+        try:
+            hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+            if hwnd:
+                ctypes.windll.user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
+        except Exception:
+            pass
 
 
 if __name__ == '__main__':

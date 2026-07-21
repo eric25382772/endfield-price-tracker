@@ -662,4 +662,5 @@ if __name__ == '__main__':
     init_db()
     print("Server running at http://127.0.0.1:5000")
     # threaded=True：SSE 長連線會佔住一條執行緒，其他輪詢請求需另開執行緒才不會被卡住
-    app.run(debug=True, host='127.0.0.1', port=5000, threaded=True)
+    # use_reloader=False：關掉 reloader，Flask 只留單一行程；避免主進程一崩就留下成對孤兒
+    app.run(debug=True, use_reloader=False, host='127.0.0.1', port=5000, threaded=True)
