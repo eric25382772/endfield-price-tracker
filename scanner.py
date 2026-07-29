@@ -565,6 +565,9 @@ def parse_remaining_quota(ocr_results, region, market_y, game_date=None):
     return None
 
 
+HOLDING_NOISE_RE = re.compile(r'持有|盈虧|總計|剩餘|小時後')
+
+
 def parse_holding_area(ocr_results, market_y, items_db):
     """
     解析「市場」文字上方的持有區物品。
@@ -575,6 +578,12 @@ def parse_holding_area(ocr_results, market_y, items_db):
         return []
 
     holding_ocr = [b for b in ocr_results if b['center_y'] < market_y]
+    # 濾掉持有區裡會被當成價格讀走的干擾數字：
+    #   「持有400」是持有數量、「持有總計 392000 / 盈虧 336800」是彙總、
+    #   「剩餘可購買數量 200/400」是配額。真正的買入單價是卡片上獨立的 3-4 位數。
+    holding_ocr = [b for b in holding_ocr
+                   if not HOLDING_NOISE_RE.search(b['text'])
+                   and not re.search(r'\d{5,}', b['text'])]
     if not holding_ocr:
         return []
 
