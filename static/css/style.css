@@ -66,8 +66,82 @@ body {
 }
 .ef-nav-disclaimer {
     color: var(--ef-mut2); font-size: .8rem; letter-spacing: .04em;
-    margin-left: 18px; align-self: center;
+    margin-left: 26px; align-self: center;
 }
+
+/* ===== 版本徽章（v5.1）=====
+   放在品牌右側、與功能分頁分開：版本狀態屬於「程式本身」，不該被看成第四個分頁。
+   最新版只顯示版本號，安靜待著；有新版才變金色加字，讓顏色去吸引注意。 */
+.ef-vbadge {
+    font-family: Consolas, monospace; font-size: .78rem; letter-spacing: .03em;
+    padding: 3px 10px; border: 1px solid var(--ef-line2); color: var(--ef-mut2);
+    background: transparent; white-space: nowrap; align-self: center; cursor: pointer;
+}
+.ef-vbadge:hover { color: var(--ef-txt); border-color: var(--ef-line2); }
+.ef-vbadge.is-latest { border-color: var(--ef-green-d); color: var(--ef-green); }
+.ef-vbadge.is-avail {
+    background: var(--ef-yellow); border-color: var(--ef-yellow); color: #111; font-weight: 700;
+}
+.ef-vbadge.is-off { border-style: dashed; }
+
+/* ===== 有新版可更新的橫幅（自動更新失敗時的補救路徑）===== */
+.ef-update-banner {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 13px 18px; background: rgba(229, 193, 0, .09);
+    border-bottom: 1px solid var(--ef-yellow); border-left: 4px solid var(--ef-yellow);
+}
+.ef-ub-ico { color: var(--ef-yellow); font-size: 1.1rem; line-height: 1.4; }
+.ef-ub-text b { color: var(--ef-yellow); }
+.ef-ub-mut { color: var(--ef-mut); font-size: .86rem; }
+.ef-ub-btns { margin-left: auto; display: flex; gap: 8px; flex-shrink: 0; }
+.ef-ub-btn {
+    font-size: .82rem; font-weight: 700; padding: 5px 14px; white-space: nowrap;
+    border: 1px solid var(--ef-line2); background: var(--ef-surf2); color: var(--ef-txt);
+    text-decoration: none;
+}
+.ef-ub-btn:hover { border-color: var(--ef-mut2); color: var(--ef-txt); }
+.ef-ub-btn-pri {
+    background: var(--ef-yellow); border-color: var(--ef-yellow); color: #111;
+}
+.ef-ub-btn-pri:hover { background: var(--ef-yellow-d); border-color: var(--ef-yellow-d); color: #111; }
+
+/* ===== 更新紀錄彈窗 =====
+   點版本徽章開；自動更新後第一次開網頁也會跳一次（標題改成「已更新到 vX.Y」）。
+   內容是給使用者看的短句（release_notes.py），左欄類別徽章讓人一眼掃過去。 */
+#ef-notes-modal .modal-dialog { max-width: 580px; }
+.ef-notes-modal { border: 1px solid var(--ef-line2); }
+.ef-notes-modal .modal-header { align-items: center; gap: 10px; }
+.ef-notes-modal .modal-title { font-weight: 900; letter-spacing: .02em; }
+.ef-notes-modal .modal-body { max-height: 64vh; }
+.ef-nm-tag {
+    font-family: Consolas, monospace; font-size: .7rem; padding: 1px 7px;
+    border: 1px solid var(--ef-yellow-d); color: var(--ef-yellow);
+}
+.ef-nm-safe {
+    color: var(--ef-mut); font-size: .84rem; margin: 0 0 16px;
+    border-left: 3px solid var(--ef-green-d); padding: 3px 0 3px 11px;
+}
+.ef-nm-ver { margin-bottom: 20px; }
+.ef-nm-ver:last-child { margin-bottom: 2px; }
+.ef-nm-vhead { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.ef-nm-vhead i { flex: 1; height: 1px; background: var(--ef-line); }
+.ef-nm-vnum {
+    font-family: Consolas, monospace; font-weight: 900; font-size: .95rem;
+    letter-spacing: .03em; color: var(--ef-mut);
+}
+.ef-nm-ver.is-cur .ef-nm-vnum { color: var(--ef-yellow); font-size: 1.08rem; }
+.ef-nm-ver.is-cur .ef-nm-vhead i { background: var(--ef-yellow-d); }
+.ef-nm-row {
+    display: grid; grid-template-columns: 54px 1fr; gap: 13px; align-items: start;
+    padding: 4px 0; font-size: .9rem; line-height: 1.6;
+}
+.ef-nm-kind {
+    font-size: .72rem; font-weight: 700; text-align: center; padding: 2px 0; margin-top: 2px;
+    border: 1px solid var(--ef-line2); color: var(--ef-mut);
+}
+.ef-nm-kind.is-new { border-color: var(--ef-green-d); color: var(--ef-green); }
+.ef-nm-kind.is-tweak { border-color: var(--ef-yellow-d); color: var(--ef-yellow); }
+.ef-nm-kind.is-opt { border-color: var(--ef-mut2); color: var(--ef-txt); }
 
 /* ===== 區段標題 + 分段金線裝飾 ===== */
 .ef-htitle { display: flex; align-items: center; gap: 18px; margin: 4px 0 6px; }

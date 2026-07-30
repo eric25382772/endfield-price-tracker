@@ -11,6 +11,7 @@
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
         <div class="container">
             <a class="navbar-brand" href="/"><span class="ef-mark">EF</span> 終末地 物資追蹤</a>
+            <button type="button" class="ef-vbadge" id="ef-vbadge">v{{ app_version }}</button>
             <span class="ef-nav-disclaimer">非官方粉絲工具</span>
             <div class="navbar-nav ms-auto align-items-center">
                 <a class="nav-link {{ 'active' if request.path == '/compare' else '' }}" href="/compare">利潤比對</a>
@@ -20,6 +21,34 @@
         </div>
     </nav>
     <div id="scan-error-banner" class="alert alert-danger text-center mb-0 rounded-0 d-none"></div>
+    <!-- 有新版但沒自動更新成功時的補救橫幅（正常情況啟動時就更新完了，不會看到這條） -->
+    <div id="ef-update-banner" class="ef-update-banner d-none">
+        <span class="ef-ub-ico">⬆</span>
+        <div class="ef-ub-text">
+            <b>有新版本 <span id="ef-ub-ver"></span> 可以更新</b><span id="ef-ub-cur" class="ef-ub-mut"></span>
+            <div class="ef-ub-mut" id="ef-ub-notes"></div>
+        </div>
+        <div class="ef-ub-btns">
+            <button type="button" class="ef-ub-btn ef-ub-btn-pri" id="ef-update-now">立即更新並重啟</button>
+            <button type="button" class="ef-ub-btn" id="ef-update-later">下次啟動再說</button>
+        </div>
+    </div>
+    <!-- 更新紀錄彈窗：點版本徽章可看；自動更新完成後第一次開網頁會自己跳一次 -->
+    <div class="modal fade" id="ef-notes-modal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content ef-notes-modal">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="ef-nm-title">更新紀錄</h5>
+                    <span class="ef-nm-tag d-none" id="ef-nm-tag">自動更新完成</span>
+                    <button type="button" class="btn-close btn-close-white ms-auto" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="ef-nm-safe d-none" id="ef-nm-safe">你的價格紀錄、囤貨、好友名稱全部保留，沒有任何資料被覆蓋。</p>
+                    <div id="ef-nm-body"></div>
+                </div>
+            </div>
+        </div>
+    </div>
     <div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1080;">
         <div id="scan-error-toast" class="toast align-items-center text-bg-danger border-0" role="alert" data-bs-autohide="false">
             <div class="d-flex">
@@ -237,6 +266,91 @@
         // 關網頁自動收工：保持一條 SSE 長連線，分頁一關連線就斷，Flask 端據此結束整組程式。
         // EventSource 斷線會自動重連（例如 reload），所以只有真正關閉分頁才會觸發收工。
         try { window._aliveES = new EventSource('/api/alive'); } catch (e) {}
+    })();
+    </script>
+    <script>
+    // 版本狀態：scanner 啟動時查一次 GitHub 並寫檔，這裡只讀一次結果（不重複打 API）
+    (function () {
+        const badge = document.getElementById('ef-vbadge');
+        const banner = document.getElementById('ef-update-banner');
+        if (!badge) return;
+
+        function showBanner(d) {
+            if (sessionStorage.getItem('ef_update_dismissed') === d.latest) return;
+            document.getElementById('ef-ub-ver').textContent = 'v' + d.latest;
+            document.getElementById('ef-ub-cur').textContent = '（你目前是 v' + d.current + '）';
+            const notes = document.getElementById('ef-ub-notes');
+            notes.textContent = d.highlights && d.highlights.length
+                ? '更新內容：' + d.highlights.join('；') : (d.message || '');
+            banner.classList.remove('d-none');
+            document.getElementById('ef-update-now').addEventListener('click', function () {
+                fetch('/api/update', {method: 'POST'}).catch(() => {});
+                banner.innerHTML = '<span class="ef-ub-ico">⬆</span><div class="ef-ub-text">'
+                    + '<b>正在更新…</b><div class="ef-ub-mut">更新完會自動重新啟動並開啟網頁，這個分頁可以關掉。</div></div>';
+            });
+            document.getElementById('ef-update-later').addEventListener('click', function () {
+                sessionStorage.setItem('ef_update_dismissed', d.latest);
+                banner.classList.add('d-none');
+            });
+        }
+
+        // 更新紀錄彈窗：點徽章開，或剛更新完自動開一次（標題與提示不同）
+        const KIND_CLASS = {'新增': 'is-new', '調整': 'is-tweak', '改善': 'is-opt', '修正': 'is-fix'};
+        let notesCache = null;
+        let notesModal = null;
+
+        function renderNotes(data, justUpdated) {
+            const esc = s => s.replace(/[&<>]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;'}[c]));
+            document.getElementById('ef-nm-body').innerHTML = data.versions.map(v => {
+                const cur = v.version === data.current;
+                const rows = v.items.map(i =>
+                    '<div class="ef-nm-row"><span class="ef-nm-kind ' + (KIND_CLASS[i.kind] || '')
+                    + '">' + i.kind + '</span><span>' + esc(i.text) + '</span></div>').join('');
+                return '<div class="ef-nm-ver' + (cur ? ' is-cur' : '') + '">'
+                    + '<div class="ef-nm-vhead"><span class="ef-nm-vnum">v' + v.version + '</span>'
+                    + '<i></i></div>' + rows + '</div>';
+            }).join('');
+            document.getElementById('ef-nm-title').textContent =
+                justUpdated ? '已更新到 v' + data.current : '更新紀錄';
+            document.getElementById('ef-nm-tag').classList.toggle('d-none', !justUpdated);
+            document.getElementById('ef-nm-safe').classList.toggle('d-none', !justUpdated);
+        }
+
+        function openNotes(justUpdated) {
+            const show = data => {
+                notesCache = data;
+                renderNotes(data, justUpdated);
+                notesModal = notesModal || new bootstrap.Modal(document.getElementById('ef-notes-modal'));
+                notesModal.show();
+            };
+            if (notesCache) show(notesCache);
+            else fetch('/api/release-notes').then(r => r.json()).then(show).catch(() => {});
+        }
+
+        badge.addEventListener('click', () => openNotes(false));
+
+        fetch('/api/version', {cache: 'no-store'}).then(r => r.json()).then(d => {
+            // 已是最新版只顯示版本號（不寫「最新版」）；有新版才變金色加字，檢查失敗顯示虛線框
+            if (d.state === 'available') {
+                badge.textContent = '⬆ v' + d.latest + ' 可更新';
+                badge.classList.add('is-avail');
+                badge.title = d.message || '點此看更新內容';
+                showBanner(d);
+            } else if (d.state === 'error') {
+                badge.textContent = 'v' + d.current + ' · 無法檢查更新';
+                badge.classList.add('is-off');
+                badge.title = d.message || '這次沒檢查到更新，功能不受影響';
+            } else {
+                badge.textContent = 'v' + d.current;
+                badge.classList.add('is-latest');
+                badge.title = '已是最新版'
+                    + (d.checked_at ? ' · 上次檢查 ' + d.checked_at.slice(11, 16) : '');
+            }
+            if (d.updated_from && localStorage.getItem('ef_update_seen') !== d.current) {
+                localStorage.setItem('ef_update_seen', d.current);
+                openNotes(true);
+            }
+        }).catch(() => {});
     })();
     </script>
     <script>

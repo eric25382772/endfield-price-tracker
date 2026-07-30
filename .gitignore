@@ -12,6 +12,10 @@ data/friend_ocr_debug.log
 data/scanner.log
 data/shutdown.flag
 data/scanner.pids.json
+data/update_status.json
+data/update_applied.json
+data/update_request.json
+data/update_backup/
 uploads/
 *.egg-info/
 dist/
@@ -25,3 +29,4 @@ data/item_images/_debug_*
 installer/InnoDownloadPlugin/
 installer/python-*.exe
 EndfieldTracker_Setup_*.exe
+update_v*.zip

@@ -1,4 +1,5 @@
 import json
+import re
 import time
 import threading
 import statistics
@@ -24,9 +25,16 @@ from data.repository import (
     get_items_by_region,
 )
 from tools.predictor import predict_series
+from version import __version__
+from release_notes import NOTES
 
 app = Flask(__name__)
 app.secret_key = 'endfield-price-tracker-secret'
+
+
+@app.context_processor
+def inject_version():
+    return {'app_version': __version__}
 
 
 @app.route('/')
@@ -656,6 +664,67 @@ def api_web_ready():
     scanner 要等這裡回 ready 才收掉啟動提示視窗，避免「視窗關了頁面還沒來」。"""
     with _sse_lock:
         return jsonify(ready=_sse_clients > 0)
+
+
+# ── 版本 / 自動更新 ────────────────────────────────────────────
+# 檢查更新只由 scanner 在啟動時做一次（v5.1 定案），結果寫進 update_status.json；
+# 網頁這邊只讀那份檔，不重複打 GitHub API。
+UPDATE_STATUS_FILE = Path(__file__).parent / 'data' / 'update_status.json'
+UPDATE_REQUEST_FILE = Path(__file__).parent / 'data' / 'update_request.json'
+def _release_highlights(body, limit=3):
+    """GitHub release 說明 → 前幾條重點純文字，給網頁橫幅用。"""
+    out = []
+    for line in (body or '').splitlines():
+        line = line.strip()
+        if line.startswith('- '):
+            out.append(re.sub(r'[*`]', '', line[2:]))
+            if len(out) >= limit:
+                break
+    return out
+
+
+@app.route('/api/version')
+def api_version():
+    """導覽列版本徽章的資料來源。"""
+    st = {}
+    try:
+        st = json.loads(UPDATE_STATUS_FILE.read_text(encoding='utf-8'))
+    except Exception:
+        pass
+    state = st.get('state') or 'error'
+    if state == 'updating':
+        # 更新完成後重啟寫的狀態；能讀到這裡表示新版已經在跑
+        state = 'latest'
+    return jsonify(
+        current=__version__,
+        latest=st.get('latest'),
+        state=state,
+        message=st.get('message') or '',
+        updated_from=st.get('updated_from'),
+        highlights=_release_highlights(st.get('notes')),
+        checked_at=st.get('checked_at'),
+    )
+
+
+@app.route('/api/update', methods=['POST'])
+def api_update():
+    """使用者按「立即更新並重啟」。實際換檔與重啟由 scanner 做——Flask 自己會被一起收掉。"""
+    try:
+        UPDATE_REQUEST_FILE.parent.mkdir(parents=True, exist_ok=True)
+        UPDATE_REQUEST_FILE.write_text(
+            json.dumps({'ts': datetime.now().isoformat()}), encoding='utf-8')
+        return jsonify(ok=True)
+    except Exception:
+        return jsonify(ok=False), 500
+
+
+@app.route('/api/release-notes')
+def api_release_notes():
+    """更新紀錄彈窗的內容（給使用者看的簡短版，來源 release_notes.py）。"""
+    return jsonify(current=__version__, versions=[
+        {'version': v, 'items': [{'kind': k, 'text': t} for k, t in items]}
+        for v, items in NOTES
+    ])
 
 
 if __name__ == '__main__':

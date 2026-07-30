@@ -25,6 +25,8 @@ import keyboard
 import mss
 import mss.tools
 
+import updater
+from version import __version__
 from config import get_game_date, REGIONS, UPLOAD_FOLDER
 from data.models import init_db
 from data.items import VALLEY_IV_GOODS, WULING_GOODS
@@ -284,7 +286,8 @@ def show_splash():
     """啟動時彈一個無邊框提示視窗（含實心進度綠條），讓使用者知道正在開啟、不是沒反應。
     在獨立執行緒跑自己的 Tk mainloop，不擋主執行緒後續載入 OCR；綠條在 tick 裡平滑往前爬向
     目標值（ease-out），所以就算某階段等較久也是持續前進，不會死在原地、也不是跑馬燈。
-    回傳 (update, close)：update(text, percent) 換文字並設目標進度、close() 立即關閉視窗。"""
+    回傳 (update, close)：update(text, percent, detail) 換文字／設目標進度／換底部細節行、
+    close() 立即關閉視窗。"""
     msg_q = Queue()
     ready = threading.Event()
 
@@ -298,7 +301,7 @@ def show_splash():
         root = tk.Tk()
         root.overrideredirect(True)
         root.attributes('-topmost', True)
-        w, h = 380, 150
+        w, h = 380, 176
         sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
         root.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 2}")
         root.configure(bg='#1b1b1f')
@@ -309,6 +312,10 @@ def show_splash():
         status.pack()
         pb = ttk.Progressbar(root, mode='determinate', maximum=100, length=300)
         pb.pack(pady=18)
+        # 細節行：平時顯示目前版本，更新時改成下載進度／重啟提示
+        detail = tk.Label(root, text=f'目前版本 v{__version__}', fg='#8b8b93', bg='#1b1b1f',
+                          font=('Consolas', 8))
+        detail.pack()
         state = {'target': 8.0, 'value': 0.0, 'closing': False}
 
         def tick():
@@ -331,11 +338,13 @@ def show_splash():
                         state['closing'] = True
                         state['target'] = 100.0
                     else:
-                        text, percent = item
+                        text, percent, det = item
                         if text is not None:
                             status.config(text=text)
                         if percent is not None:
                             state['target'] = float(percent)
+                        if det is not None:
+                            detail.config(text=det)
             except Exception:
                 pass
             root.after(80, poll)
@@ -354,14 +363,15 @@ def show_splash():
             root.quit()
         except Exception:
             pass
-        root = status = pb = None
+        root = status = pb = detail = None
         tick = poll = None
         import gc
         gc.collect()
 
     threading.Thread(target=run, daemon=True).start()
     ready.wait(timeout=5)
-    return (lambda text=None, percent=None: msg_q.put((text, percent))), (lambda: msg_q.put(None))
+    return ((lambda text=None, percent=None, detail=None: msg_q.put((text, percent, detail))),
+            (lambda: msg_q.put(None)))
 
 
 def get_foreground_window_rect():
@@ -1208,6 +1218,26 @@ def watchdog_web_closed():
         time.sleep(1)
 
 
+def watchdog_update_request():
+    """網頁按「立即更新並重啟」時 Flask 會寫 update_request.json（自動更新失敗才會出現那顆按鈕）。
+    讀到就套用更新、收掉 Flask，再用新版重啟整組程式。"""
+    while not _shutdown_event.is_set():
+        try:
+            if updater.REQUEST_FILE.exists():
+                updater.REQUEST_FILE.unlink()
+                info = updater.pending_update()
+                if info and updater.apply_update(info):
+                    print(f"\n網頁觸發更新完成（v{info['latest']}），重新啟動...")
+                    if flask_process and flask_process.poll() is None:
+                        _kill_tree(flask_process.pid)
+                    updater.restart()  # 不返回
+                else:
+                    update_scan_error('自動更新沒成功，仍以目前版本執行')
+        except Exception:
+            pass
+        time.sleep(1)
+
+
 def watchdog_heartbeat(grace=30, timeout=15):
     """網頁每 2 秒 POST /api/heartbeat 更新 heartbeat.json。
     若超過 `timeout` 秒沒心跳（啟動 `grace` 秒後開始檢查），視為網頁已關閉，觸發退出。"""
@@ -1322,6 +1352,14 @@ def main():
     # 晚一步建立就會讓人以為程式沒反應（首次啟動尤其明顯）
     update_splash, close_splash = show_splash()
 
+    # 自動更新：排在最前面（Flask／OCR 都還沒起來，這時換檔最乾淨）。
+    # 更新成功要重啟才會載入新程式碼，所以提示視窗會關掉再開一次。
+    update_splash('檢查更新…', 8)
+    if updater.startup_update(update_splash):
+        close_splash()
+        time.sleep(0.4)  # 讓 Tk 在自己的執行緒收乾淨，避免 Tcl_AsyncDelete
+        updater.restart()  # 不返回
+
     init_db()
 
     # 清掉上一輪殘留的收工旗標，避免一啟動就被誤判關閉
@@ -1330,13 +1368,19 @@ def main():
             SHUTDOWN_FILE.unlink()
     except Exception:
         pass
+    # 同理清掉殘留的更新請求，避免剛啟動就被上一輪的舊請求觸發
+    try:
+        if updater.REQUEST_FILE.exists():
+            updater.REQUEST_FILE.unlink()
+    except Exception:
+        pass
 
     # 自我修復：清掉上一輪沒關乾淨的殘留實例，再往下綁 5000 埠。
     # 「清掉再開」而非「已在執行就拒絕」，確保使用者永遠不會被卡在外面。
     reap_leftover_instances()
 
     print("=" * 50)
-    print("  彈性物資價格掃描器")
+    print(f"  彈性物資價格掃描器 v{__version__}")
     print("=" * 50)
     print()
     print("  F2  = 掃描自己的市場價格")
@@ -1387,6 +1431,8 @@ def main():
     threading.Thread(target=quit_hotkey_listener, daemon=True).start()
     # 關網頁自動收工：Flask 端偵測分頁全關會寫 shutdown.flag（SSE 長連線，不受背景 throttle 影響）
     threading.Thread(target=watchdog_web_closed, daemon=True).start()
+    # 網頁上的「立即更新並重啟」（自動更新失敗時的補救路徑）
+    threading.Thread(target=watchdog_update_request, daemon=True).start()
 
     # Pre-load OCR engine：熱鍵此時已可用，這段純粹先暖機讓第一次掃描不用等
     print("  正在載入 OCR 引擎（首次較慢）...")
