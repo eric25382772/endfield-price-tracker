@@ -199,8 +199,8 @@
 
 <table>
 <tr>
-<td width="50%" align="center"><img src="https://github.com/user-attachments/assets/177acb3e-80b5-4a5b-a4ee-21e985250a2a" width="100%" alt="辨識結果 1"><br><sub>② 辨識完成</sub></td>
-<td width="50%" align="center"><img src="https://github.com/user-attachments/assets/e3911f87-c316-469e-b7c2-38daca1894ef" width="100%" alt="辨識結果 2"><br><sub>③ 自動算出利潤</sub></td>
+<td width="50%" align="center"><img src="https://github.com/user-attachments/assets/177acb3e-80b5-4a5b-a4ee-21e985250a2a" width="100%" alt="辨識中"><br><sub>② 辨識中（可繼續按 F3 掃下一個）</sub></td>
+<td width="50%" align="center"><img src="https://github.com/user-attachments/assets/e3911f87-c316-469e-b7c2-38daca1894ef" width="100%" alt="辨識完成"><br><sub>③ 辨識完成，自動算出利潤</sub></td>
 </tr>
 </table>
 
