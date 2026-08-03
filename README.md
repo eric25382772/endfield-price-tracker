@@ -64,6 +64,7 @@
 | **Ctrl+Shift+Q** | 結束掃描器 |
 
 ### 操作流程
+注意事項：**一定要先按 F2 掃描自己市場**，系統才知道在哪個地區，F3 才能正確辨識貨物。
 
 1. 雙擊桌面上的終末地追蹤器，打開網頁
 <img width="294" height="458" alt="image" src="https://github.com/user-attachments/assets/d73382fa-92a5-4829-836d-0e0979a97156" />
@@ -80,7 +81,7 @@
 <img width="1312" height="1139" alt="image" src="https://github.com/user-attachments/assets/177acb3e-80b5-4a5b-a4ee-21e985250a2a" />
 <img width="1291" height="1140" alt="image" src="https://github.com/user-attachments/assets/e3911f87-c316-469e-b7c2-38daca1894ef" />
 
-重要：**一定要先按 F2 掃描自己市場**，系統才知道在哪個地區，F3 才能正確辨識貨物。
+
 
 ## 版本更新紀錄
 
