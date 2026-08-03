@@ -1,7 +1,12 @@
 # 版本更新紀錄
 
+## v5.1.2
+- **真正修好乾淨 Windows 的「無法檢查更新」**：v5.1.1 改用 certifi 但實測仍失敗——**certifi 根本不在本專案的相依裡**（requirements 沒列，torchvision 也不需要它，開發機上有純粹是別的專案裝的），乾淨機器上 `import certifi` 直接失敗、靜靜退回系統那份空清單，錯誤原封不動。這次兩手都補：
+  - `requirements.txt` 明列 `certifi`，新安裝一定有
+  - 新增備援連線：Python 的 TLS 失敗就改用 Windows 內建的 `curl.exe`（走 Schannel，會觸發 Windows「用到才線上補憑證」，這正是 Python `ssl` 不會做的事）。既有安裝沒 certifi 也救得回來；公司 MITM 代理只有根憑證在 Windows 存放區的情境同理。檢查更新與下載更新檔都走這條備援
+
 ## v5.1.1
-- **修正乾淨 Windows 一律顯示「無法檢查更新」**：`urllib` 用的是 Windows 憑證存放區，而全新系統（剛裝好的 VM 最典型）那份幾乎是空的——Windows 採「用到才線上補憑證」，沒瀏覽過 HTTPS 網頁就補不到，於是憑證驗證失敗；同一台機器 pip 卻正常，是因為 pip 自帶 certifi。表面只看得到 `URLError`（已本機重現：清空憑證的 context 打 api.github.com 就是這個錯）。改為優先使用 certifi 的根憑證（torch／easyocr 已相依，必定存在），沒有才退回系統預設；下載更新檔同樣套用
+- **修正乾淨 Windows 一律顯示「無法檢查更新」**（**未真正解決，見 v5.1.2**）：`urllib` 用的是 Windows 憑證存放區，而全新系統（剛裝好的 VM 最典型）那份幾乎是空的——Windows 採「用到才線上補憑證」，沒瀏覽過 HTTPS 網頁就補不到，於是憑證驗證失敗；同一台機器 pip 卻正常，是因為 pip 自帶 certifi。表面只看得到 `URLError`（已本機重現：清空憑證的 context 打 api.github.com 就是這個錯）。改為優先使用 certifi 的根憑證（torch／easyocr 已相依，必定存在），沒有才退回系統預設；下載更新檔同樣套用
 - **檢查更新逾時 4 秒 → 10 秒，失敗後重試一次**：VM 或冷開機的第一次 TLS 握手常超過 4 秒
 - **錯誤訊息寫出真正原因**：原本只記例外型別（`URLError`），看不出是憑證、逾時還是 DNS；現在把底層 reason 一併寫進版本徽章提示與 `data/scanner.log`
 

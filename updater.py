@@ -26,6 +26,8 @@ from config import FRIEND_REF_DIR
 from version import __version__
 
 REPO = 'eric25382772/endfield-price-tracker'
+USER_AGENT = f'EndfieldTracker/{__version__}'
+CURL_EXE = Path(os.environ.get('SystemRoot', r'C:\Windows')) / 'System32' / 'curl.exe'
 API_LATEST = f'https://api.github.com/repos/{REPO}/releases/latest'
 RELEASES_PAGE = f'https://github.com/{REPO}/releases/latest'
 CHECK_TIMEOUT = 10      # 檢查更新逾時（秒）：連不上就當作沒新版，不能拖住啟動
@@ -86,17 +88,37 @@ def _take_applied_marker():
 
 
 def _ssl_context():
-    """優先用 certifi 附的根憑證清單。
+    """優先用 certifi 附的根憑證清單（requirements.txt 已明列，正常安裝一定有）。
 
-    乾淨的 Windows（例如全新 VM）憑證存放區幾乎是空的——Windows 是「用到才上網補」，
-    沒瀏覽過網頁就補不到；urllib 走系統存放區於是 CERTIFICATE_VERIFY_FAILED（表面看到的是
-    URLError），但同一台機器 pip 卻正常，因為 pip 自帶 certifi。這裡跟 pip 用同一份就不受影響。
+    乾淨的 Windows（例如全新 VM）憑證存放區幾乎是空的——Windows 是「用到才線上補」，
+    沒連過 HTTPS 就補不到；Python 的 ssl 只讀存放區「現有的」內容、不會觸發那個補憑證機制，
+    於是 CERTIFICATE_VERIFY_FAILED（表面只看到 URLError）。
     """
     try:
         import certifi
         return ssl.create_default_context(cafile=certifi.where())
     except Exception:
-        return None  # 沒有 certifi 就退回系統預設
+        return None  # 沒有 certifi 就退回系統預設，真的不行還有 curl 那條路
+
+
+def _curl(args, timeout):
+    """備援連線：用 Windows 內建的 curl.exe（Win10 1803 起隨系統附帶）。
+
+    它走 Schannel，會觸發 Windows「用到才線上補憑證」，所以 Python 這條因憑證失敗時它救得回來
+    （v5.1.1 只加 certifi 仍失敗過：那台機器根本沒裝 certifi，靜靜退回系統的空清單）。
+    公司 MITM 代理的情境也是同理——那種根憑證只在 Windows 存放區裡。
+    """
+    if not CURL_EXE.exists():
+        raise FileNotFoundError('找不到 curl.exe')
+    r = subprocess.run(
+        [str(CURL_EXE), '-fsSL', '--max-time', str(timeout), '-A', USER_AGENT] + args,
+        capture_output=True, timeout=timeout + 15,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    if r.returncode != 0:
+        raise RuntimeError(f'curl 失敗（code {r.returncode}）：'
+                           f'{r.stderr[:200].decode("utf-8", "replace").strip()}')
+    return r.stdout
 
 
 def check_latest():
@@ -114,11 +136,18 @@ def check_latest():
 
 def _fetch_latest():
     req = urllib.request.Request(API_LATEST, headers={
-        'User-Agent': f'EndfieldTracker/{__version__}',
+        'User-Agent': USER_AGENT,
         'Accept': 'application/vnd.github+json',
     })
-    with urllib.request.urlopen(req, timeout=CHECK_TIMEOUT, context=_ssl_context()) as r:
-        data = json.loads(r.read().decode('utf-8'))
+    try:
+        with urllib.request.urlopen(req, timeout=CHECK_TIMEOUT, context=_ssl_context()) as r:
+            raw = r.read()
+    except Exception as e:
+        try:
+            raw = _curl(['-H', 'Accept: application/vnd.github+json', API_LATEST], CHECK_TIMEOUT)
+        except Exception:
+            raise e  # 回報第一手原因（多半是憑證），curl 只是備援
+    data = json.loads(raw.decode('utf-8'))
     zip_url = None
     for asset in data.get('assets') or []:
         name = (asset.get('name') or '').lower()
@@ -144,7 +173,17 @@ def _allowed(name):
 
 
 def _download(url, dest, progress=None):
-    req = urllib.request.Request(url, headers={'User-Agent': f'EndfieldTracker/{__version__}'})
+    try:
+        _download_stream(url, dest, progress)
+    except Exception:
+        # 同 _fetch_latest：Python 的 TLS 不行就換 curl（沒有逐段進度，只顯示文字）
+        if progress:
+            progress(None, 40, '下載更新檔…')
+        _curl(['-o', str(dest), url], DOWNLOAD_TIMEOUT)
+
+
+def _download_stream(url, dest, progress=None):
+    req = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
     with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT, context=_ssl_context()) as r:
         total = int(r.headers.get('Content-Length') or 0)
         got = 0

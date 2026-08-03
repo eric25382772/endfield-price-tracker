@@ -6,3 +6,6 @@ numpy>=1.26.0
 thefuzz[speedup]>=0.22.1
 keyboard>=0.13.5
 mss>=9.0.0
+# 自動更新檢查 HTTPS 用：Python 的 ssl 讀的是 Windows 憑證存放區，全新系統那份幾乎是空的
+# （Windows 是「用到才線上補」），會 CERTIFICATE_VERIFY_FAILED。必須自己帶一份根憑證。
+certifi>=2024.2.2
