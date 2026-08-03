@@ -78,13 +78,23 @@ def set_scan_status(phase, region=None, error=None):
         _last_error = error
     try:
         SCAN_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        SCAN_STATUS_FILE.write_text(json.dumps({
+        data = {
             'phase': phase,
             'region': region,
             'completed': _completed_count,
             'error': _last_error,
             'updated_at': datetime.now().isoformat(timespec='seconds'),
-        }), encoding='utf-8')
+        }
+        # pending_f2 只由 set_pending_f2 / clear_pending_f2 管理。這裡若整份覆寫掉，
+        # 背景掃描寫狀態時會把它洗掉，確認窗就會在使用者還沒決定前自己消失。
+        if SCAN_STATUS_FILE.exists():
+            try:
+                old = json.loads(SCAN_STATUS_FILE.read_text(encoding='utf-8'))
+                if 'pending_f2' in old:
+                    data['pending_f2'] = old['pending_f2']
+            except Exception:
+                pass
+        SCAN_STATUS_FILE.write_text(json.dumps(data), encoding='utf-8')
     except Exception:
         pass
 
@@ -374,6 +384,10 @@ def show_splash():
             (lambda: msg_q.put(None)))
 
 
+# 追蹤器網頁的 <title>（見 templates/base.html）；瀏覽器視窗標題會包含這串
+OWN_PAGE_TITLE = '彈性物資價格追蹤器'
+
+
 def get_foreground_window_rect():
     """Get the foreground window's CLIENT area (純遊戲畫面) in screen coords.
 
@@ -410,6 +424,12 @@ def capture_foreground_window():
     """Capture the foreground window screenshot, return temp file path."""
     win = get_foreground_window_rect()
     print(f"  截取視窗: {win['title']} ({win['width']}x{win['height']})")
+
+    # 截到追蹤器自己的網頁最危險：網頁上滿滿都是物品名與四位數數字，
+    # OCR 會信以為真，把畫面上的舊資料與日期當成市場價寫回資料庫。
+    if OWN_PAGE_TITLE in win['title']:
+        update_scan_error('截到的是追蹤器網頁，不是遊戲畫面。請先點一下遊戲視窗再按熱鍵。')
+        raise RuntimeError('截到的是追蹤器網頁，不是遊戲畫面')
 
     with mss.mss() as sct:
         monitor = {
@@ -766,10 +786,14 @@ def process_my_prices(filepath):
             print("  [!] 本次自己市場掃描未存入任何價格，好友比對將等待下次成功掃描")
 
 
-def _do_f2_capture():
-    """實際執行 F2 截圖並入隊。給 keypress 與 decision thread 共用。"""
+def _do_f2_capture(filepath=None):
+    """實際執行 F2 截圖並入隊。給 keypress 與 decision thread 共用。
+    filepath 已傳入時代表按鍵當下就拍好了（換區確認流程），直接沿用不重拍。"""
     my_scan_active.set()
     f2_ready.clear()
+    if filepath is not None:
+        f2_queue.put(filepath)
+        return
     print(f"\n{'='*50}")
     print(f"[F2] 掃描自己的市場")
     print(f"{'='*50}")
@@ -782,7 +806,15 @@ def _do_f2_capture():
         my_scan_active.clear()
 
 
-def _wait_f2_decision_thread():
+def _discard_f2_shot(filepath):
+    """取消／逾時：按鍵當下先拍的那張沒用到，直接刪掉不留在 uploads。"""
+    try:
+        os.remove(filepath)
+    except Exception:
+        pass
+
+
+def _wait_f2_decision_thread(filepath):
     """背景 thread：輪詢 f2_decision.json，依結果清 f3_queue + 執行 F2 或取消。"""
     try:
         F2_DECISION_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -816,9 +848,10 @@ def _wait_f2_decision_thread():
                     print(f"\n  [換區確認] 已清空待辦好友比對 {cleared_queue} 張，並會丟棄處理中的 1 張")
                     clear_pending_f2()
                     f2_pending_lock.clear()
-                    _do_f2_capture()
+                    _do_f2_capture(filepath)
                 else:
                     print(f"\n  [換區取消] 保留好友比對暫存")
+                    _discard_f2_shot(filepath)
                     clear_pending_f2()
                     f2_pending_lock.clear()
                 return
@@ -826,10 +859,12 @@ def _wait_f2_decision_thread():
 
         # Timeout
         print(f"\n  [換區逾時取消] 60 秒未決定，自動取消")
+        _discard_f2_shot(filepath)
         clear_pending_f2()
         f2_pending_lock.clear()
     except Exception as e:
         print(f"  [換區 decision thread 錯誤] {e}")
+        _discard_f2_shot(filepath)
         clear_pending_f2()
         f2_pending_lock.clear()
 
@@ -842,9 +877,21 @@ def scan_my_prices():
             print(f"\n  [掃描忽略] 已有換區確認窗等待中")
             return
         f2_pending_lock.set()
-        print(f"\n  [等待換區確認] 還有 {pending_f3} 張好友比對未處理，網頁確認窗已彈出")
+        # 截圖必須在按鍵當下就拍：等使用者點完網頁上的確認鈕才拍，
+        # 最前面的視窗會是瀏覽器，會把追蹤器自己的網頁當成市場畫面掃進去。
+        print(f"\n{'='*50}")
+        print(f"[F2] 掃描自己的市場")
+        print(f"{'='*50}")
+        try:
+            filepath = capture_foreground_window()
+            print(f"  截圖已儲存: {filepath}")
+        except Exception as e:
+            print(f"  截圖錯誤: {e}")
+            f2_pending_lock.clear()
+            return
+        print(f"  [等待換區確認] 還有 {pending_f3} 張好友比對未處理，網頁確認窗已彈出")
         set_pending_f2(pending_f3)
-        threading.Thread(target=_wait_f2_decision_thread, daemon=True).start()
+        threading.Thread(target=_wait_f2_decision_thread, args=(filepath,), daemon=True).start()
         return
     _do_f2_capture()
 
@@ -1071,6 +1118,15 @@ def process_friend_prices(filepath):
         friend_list = parse_friend_list(ocr_results, img_width=img_width)
         if not friend_list:
             print("  未辨識到好友價格")
+            return
+
+        # 確認窗開著時先停在這裡不要寫入：使用者若選「丟棄並重新辨識」，
+        # 這張是換區前的舊畫面，存進去會配到錯的物品。
+        while f2_pending_lock.is_set():
+            time.sleep(0.3)
+        if _drop_in_flight_f3.is_set():
+            _drop_in_flight_f3.clear()
+            print(f"  [好友比對 已捨棄] 使用者選擇重新辨識，不寫入")
             return
 
         # Step 3: 清除該物品舊的好友價格，再儲存新的

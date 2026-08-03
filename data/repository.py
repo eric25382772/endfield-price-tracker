@@ -300,12 +300,17 @@ def upsert_stockpile(item_id, buy_price, region, game_date=None):
     conn.close()
 
 
-def get_active_stockpile():
+def get_active_stockpile(game_date=None):
     """取得所有未賣出的囤貨，搭配好友最高價計算利潤。
 
     同一 item_id 跨遊戲日重複插入時，UI 端壓成一列：
     取最早 game_date_bought、最低 buy_price，id 取代表列（最早那筆）。
+
+    好友最高價只取 game_date 當天的：跨天沿用上次掃到的價格會讓沒掃的日子
+    看起來仍有利潤，實際上是幾天前的舊值。
     """
+    if game_date is None:
+        game_date = get_game_date()
     conn = get_db()
     rows = conn.execute("""
         SELECT g.item_id,
@@ -318,7 +323,7 @@ def get_active_stockpile():
                (SELECT MAX(fp.market_price)
                 FROM friend_prices fp
                 WHERE fp.item_id = g.item_id
-                  AND fp.game_date = (SELECT MAX(fp2.game_date) FROM friend_prices fp2 WHERE fp2.item_id = g.item_id)
+                  AND fp.game_date = ?
                ) as friend_best_price
         FROM (
             SELECT item_id,
@@ -330,7 +335,7 @@ def get_active_stockpile():
         ) g
         JOIN items i ON g.item_id = i.id
         ORDER BY g.game_date_bought DESC
-    """).fetchall()
+    """, (game_date,)).fetchall()
     conn.close()
     results = []
     for row in rows:

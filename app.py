@@ -254,7 +254,7 @@ def compare():
     profitable.sort(key=lambda x: x['profit'], reverse=True)
 
     # 囤貨 + 剩餘配額
-    stockpile = get_active_stockpile()
+    stockpile = get_active_stockpile(date)
     valley_quota = get_quota('valley_iv', date)
     wuling_quota = get_quota('wuling', date)
 

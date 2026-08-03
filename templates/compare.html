@@ -382,7 +382,7 @@
                         {% endif %}
                         {% if item.pred_stockpile_profit is not none %}
                             <br><small class="text-muted">
-                                未來 7 天最高預測：
+                                最高預測：
                                 <span class="{% if item.pred_stockpile_profit > 0 %}text-success{% elif item.pred_stockpile_profit < 0 %}text-danger{% endif %}">
                                     {% if item.pred_stockpile_profit > 0 %}+{% endif %}{{ item.pred_stockpile_profit }}
                                 </span>
