@@ -177,7 +177,7 @@
 
 <p align="center">
   <img src="https://github.com/user-attachments/assets/f4e29aa0-ebfd-48ba-bfcc-e8277c5b76d4" width="820" alt="彈性需求物資畫面"><br>
-  <sub>① 在此畫面按 F2</sub>
+  <sub>① 在市場畫面按 F2</sub>
 </p>
 
 <p align="center">
