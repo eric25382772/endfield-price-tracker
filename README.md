@@ -65,10 +65,11 @@
 
 ### 操作流程
 
-1. 雙擊桌面「終末地追蹤器」捷徑，打開網頁
-<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/2df5ee47-9194-44a7-ba6c-40080cb795b8" />
+1. 雙擊桌面上的終末地追蹤器，打開網頁
+<img width="294" height="458" alt="image" src="https://github.com/user-attachments/assets/d73382fa-92a5-4829-836d-0e0979a97156" />
 <img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/76b4598f-9a1e-446a-99d1-3ea4eff0ded5" />
 <img width="400" height="170" alt="image" src="https://github.com/user-attachments/assets/fd529faf-ab45-4a8d-8049-aaf67ba889d1" />
+<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/3efeaf5d-d3b3-4883-b12a-36fd9028415b" />
 
 2. **再開啟遊戲**，進入市場畫面（能看到自己的物品和價格）
 3. **按 F2** 掃描自己的市場 — 系統會自動辨識物品名稱、價格，並鎖定區域（四號谷地或武陵）
