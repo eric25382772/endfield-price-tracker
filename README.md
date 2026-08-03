@@ -71,14 +71,16 @@
 <img width="400" height="170" alt="image" src="https://github.com/user-attachments/assets/fd529faf-ab45-4a8d-8049-aaf67ba889d1" />
 <img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/3efeaf5d-d3b3-4883-b12a-36fd9028415b" />
 
-2. **再開啟遊戲**，進入市場畫面（能看到自己的物品和價格）
-3. **按 F2** 掃描自己的市場 — 系統會自動辨識物品名稱、價格，並鎖定區域（四號谷地或武陵）
-4. **點開好友的價格畫面**（左側大圖 + 右側好友列表）
-5. **按 F3** 截圖好友價格 — 可以連續按，不用等上一張處理完，系統會排隊依序辨識
-6. **重複步驟 4-5**，把每個物品的好友價格都掃完
-7. **開啟瀏覽器** 前往 http://127.0.0.1:5000/compare 查看利潤比對結果
+2.到自己的彈性需求物資畫面，按F2，系統會自動辨識物品名稱、價格，並帶到辨識地區的表格畫面
+<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/f4e29aa0-ebfd-48ba-bfcc-e8277c5b76d4" />
+<img width="2560" height="1271" alt="image" src="https://github.com/user-attachments/assets/7469e596-2a08-4c62-be0d-8add4109231e" />
+3.點擊各物資好友價格，按F3，系統會自動辨識，並計算出利潤
+(F2 F3辨識途中可繼續使用F3對下一個物資進行截圖，系統會先儲存截圖並依序辨識出來不需等待前一張辨識完成)
+<img width="1865" height="985" alt="image" src="https://github.com/user-attachments/assets/1e3365f6-d7e8-425c-ad75-a204179eadac" />
+<img width="1312" height="1139" alt="image" src="https://github.com/user-attachments/assets/177acb3e-80b5-4a5b-a4ee-21e985250a2a" />
+<img width="1291" height="1140" alt="image" src="https://github.com/user-attachments/assets/e3911f87-c316-469e-b7c2-38daca1894ef" />
 
-> 重要：**一定要先按 F2 掃描自己市場**，系統才知道你在看哪個區域，F3 才能正確辨識。
+重要：**一定要先按 F2 掃描自己市場**，系統才知道在哪個地區，F3 才能正確辨識貨物。
 
 ## 版本更新紀錄
 
