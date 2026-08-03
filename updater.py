@@ -11,9 +11,12 @@ import json
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
+import time
+import traceback
 import urllib.request
 import zipfile
 from datetime import datetime
@@ -25,7 +28,8 @@ from version import __version__
 REPO = 'eric25382772/endfield-price-tracker'
 API_LATEST = f'https://api.github.com/repos/{REPO}/releases/latest'
 RELEASES_PAGE = f'https://github.com/{REPO}/releases/latest'
-CHECK_TIMEOUT = 4       # 檢查更新逾時（秒）：連不上就當作沒新版，不能拖住啟動
+CHECK_TIMEOUT = 10      # 檢查更新逾時（秒）：連不上就當作沒新版，不能拖住啟動
+CHECK_RETRY = 2         # 冷開機第一次連線常較慢，失敗再試一次才判定失敗
 DOWNLOAD_TIMEOUT = 90
 PIP_TIMEOUT = 1800      # requirements.txt 有變動才會跑，乾淨環境裝套件可能數分鐘
 
@@ -81,13 +85,39 @@ def _take_applied_marker():
         return None
 
 
+def _ssl_context():
+    """優先用 certifi 附的根憑證清單。
+
+    乾淨的 Windows（例如全新 VM）憑證存放區幾乎是空的——Windows 是「用到才上網補」，
+    沒瀏覽過網頁就補不到；urllib 走系統存放區於是 CERTIFICATE_VERIFY_FAILED（表面看到的是
+    URLError），但同一台機器 pip 卻正常，因為 pip 自帶 certifi。這裡跟 pip 用同一份就不受影響。
+    """
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return None  # 沒有 certifi 就退回系統預設
+
+
 def check_latest():
     """問 GitHub 最新 release。連不上會拋例外，由呼叫端當作「沒檢查到」處理。"""
+    last = None
+    for attempt in range(CHECK_RETRY):
+        try:
+            return _fetch_latest()
+        except Exception as e:
+            last = e
+            if attempt + 1 < CHECK_RETRY:
+                time.sleep(1)
+    raise last
+
+
+def _fetch_latest():
     req = urllib.request.Request(API_LATEST, headers={
         'User-Agent': f'EndfieldTracker/{__version__}',
         'Accept': 'application/vnd.github+json',
     })
-    with urllib.request.urlopen(req, timeout=CHECK_TIMEOUT) as r:
+    with urllib.request.urlopen(req, timeout=CHECK_TIMEOUT, context=_ssl_context()) as r:
         data = json.loads(r.read().decode('utf-8'))
     zip_url = None
     for asset in data.get('assets') or []:
@@ -115,7 +145,7 @@ def _allowed(name):
 
 def _download(url, dest, progress=None):
     req = urllib.request.Request(url, headers={'User-Agent': f'EndfieldTracker/{__version__}'})
-    with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT) as r:
+    with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT, context=_ssl_context()) as r:
         total = int(r.headers.get('Content-Length') or 0)
         got = 0
         with open(dest, 'wb') as f:
@@ -267,8 +297,12 @@ def startup_update(progress=None):
     try:
         info = check_latest()
     except Exception as e:
+        # 只記型別（URLError）看不出真因，把底層原因一起寫進狀態與 log
+        reason = getattr(e, 'reason', None) or e
+        print(f"  [檢查更新失敗] {type(e).__name__}: {reason}")
+        traceback.print_exc()
         write_status(current=__version__, latest=None, state='error', zip_url=None,
-                     message=f'連不上 GitHub（{type(e).__name__}）', updated_from=updated_from)
+                     message=f'連不上 GitHub：{reason}'[:200], updated_from=updated_from)
         return False
 
     if _ver_tuple(info['latest']) <= _ver_tuple(__version__):
