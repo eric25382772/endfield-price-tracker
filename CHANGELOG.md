@@ -1,6 +1,7 @@
 # 版本更新紀錄
 
-## v5.1.1
+## v5.1.2
+（v5.1.1 的修法沒做對，補完。**版號一旦上架就不能同版號重發**——自動更新靠版號比大小決定要不要更新，同版號等於沒人收得到修正。）
 - **修正乾淨 Windows 一律顯示「無法檢查更新」**：`urllib` 用的是 Windows 憑證存放區，而全新系統（剛裝好的 VM 最典型）那份幾乎是空的——Windows 採「用到才線上補憑證」，沒連過 HTTPS 就補不到，於是憑證驗證失敗；同一台機器 pip 卻正常，是因為 pip 自帶 certifi。表面只看得到 `URLError`（已本機重現：清空憑證的 context 打 api.github.com 就是這個錯）。修法兩手都要，缺一無效：
   - `requirements.txt` **明列 `certifi`** 並優先使用其根憑證。**certifi 原本不在本專案相依裡**（torchvision 不需要它；開發機上有純粹是別的專案裝的），所以只寫「改用 certifi」在乾淨機器上等於沒改——`import certifi` 失敗就靜靜退回系統那份空清單
   - **備援連線**：Python 的 TLS 失敗就改用 Windows 內建 `curl.exe`（走 Schannel，會觸發 Windows 補憑證，這正是 Python `ssl` 不做的事）。既有安裝沒 certifi 也救得回來；公司 MITM 代理只有根憑證在 Windows 存放區的情境同理。檢查更新與下載更新檔都適用
