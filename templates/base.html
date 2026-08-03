@@ -90,7 +90,9 @@
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
     (function () {
-        const PHASE_LABEL = {scanning_self: '我的價格', scanning_friend: '好友價格', scanning_stockpile: '持有'};
+        const PHASE_LABEL = {scanning_self: '我的價格', scanning_friend: '好友價格', scanning_stockpile: '囤貨'};
+        // 還沒判斷出地區時的字樣：只有 F2 是真的在找地區，F3／F4 直接講它在辨識什麼
+        const PHASE_LABEL_NO_REGION = {scanning_self: '地區', scanning_friend: '好友價格', scanning_stockpile: '囤貨'};
         const indicators = document.querySelectorAll('.scan-indicator');
         const sections = document.querySelectorAll('.region-section');
         let prevPhase = 'idle';
@@ -253,8 +255,9 @@
                     applyFriendPlaceholders(region);
                 }
             } else {
-                // F2 剛進入還沒判斷出地區 → 所有地區都顯示「辨識地區中…」（可能只是重掃配額）
-                indicators.forEach(el => setIndicator(el, '辨識地區中…'));
+                // 還沒判斷出地區 → 所有地區都顯示，字樣依階段而定
+                const label = `辨識${PHASE_LABEL_NO_REGION[phase] || '地區'}中…`;
+                indicators.forEach(el => setIndicator(el, label));
                 sections.forEach(el => el.classList.remove('is-scanning'));
                 clearFriendPlaceholders();
             }
