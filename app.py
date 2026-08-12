@@ -2,12 +2,11 @@ import json
 import re
 import time
 import threading
-import statistics
 from datetime import datetime
 from pathlib import Path
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, abort, Response
 from config import (
-    REGIONS, get_game_date, PROFIT_THRESHOLD, STOCKPILE_THRESHOLD,
+    REGIONS, get_game_date, PROFIT_THRESHOLD, STOCKPILE_POS_LIMIT, PRED_TOLERANCE_MAX,
     WAIT_GAIN_RATIO, WAIT_MIN_CONFIDENCE, BUYABLE_RATIO,
     SELL_RISING_MARGIN, DATA_THIN_CONFIDENCE,
 )
@@ -21,7 +20,7 @@ from data.repository import (
     get_friend_name_aliases, set_friend_name_alias, rename_friend_prices,
     get_active_stockpile, mark_stockpile_sold_by_item,
     snapshot_date, delete_date_data, restore_snapshot,
-    get_price_history, get_friend_max_price_history,
+    get_price_history, get_friend_max_price_history, get_price_extremes,
     get_items_by_region,
 )
 from tools.predictor import predict_series
@@ -136,29 +135,44 @@ def _attach_forecast(rows, region, current_date, hist_cache):
             r['cross_day_sell_offset'] = None
             r['cross_day_sell_date'] = None
 
-        # v3.2: 囤貨門檻改用近 30 天我方價格的第 25 百分位（≥ 7 天才算，否則 None → 用舊門檻）
-        recent_30 = [p for d, p in my_hist[r['item_id']] if d >= _date_n_days_ago(current_date, 30)]
-        if len(recent_30) >= 7:
-            r['stockpile_floor'] = int(statistics.quantiles(recent_30, n=4)[0])
+        # v5.1.5: 囤貨判斷改看全期極值 —— 今日買價落在該物品「史上最低~最高」的哪個位置（0=史上最便宜）。
+        #       近 30 天 P25 對只有 25 天資料的新物品不穩，谷地更常整區樣本不足而退回寫死門檻。
+        ext = get_price_extremes(r['item_id'])
+        r['my_low'], r['my_high'] = ext['my_low'], ext['my_high']
+        r['sell_ceiling'] = ext['sell_ceiling']
+        myp = r.get('my_price')
+        if myp is not None and ext['my_high'] is not None and ext['my_high'] > ext['my_low']:
+            r['stockpile_pos'] = round((myp - ext['my_low']) / (ext['my_high'] - ext['my_low']) * 100)
         else:
-            r['stockpile_floor'] = None
+            r['stockpile_pos'] = None
 
 
 def _mark_stockpile(rows, region_top_profit, quota_row, region_max):
-    """每區只挑一個「建議囤貨」：合格物品中買入價最低的那個。
+    """每區只挑一個「建議囤貨」：合格物品中好友賣價天花板最高的那個。
     in-place 設 stockpile_eligible（每筆，給「別買」讓位用）/ stockpile_pick（每區一個）/ stockpile_reason。
-    合格定義同前：買價在低點 且（配額滿 或（現在最便宜 且 未來賣更高））。
+    合格定義：買價落在自己全期區間的低 STOCKPILE_POS_LIMIT%
+    且（配額滿 或（現在最便宜 且 未來賣更高））。
     """
     quota_full = bool(quota_row and region_max and quota_row.get('remaining', 0) >= region_max)
+    # 天花板名次（同區內好友賣價史上最高排第幾），給徽章 tooltip 用
+    ranked = sorted((r for r in rows if r.get('sell_ceiling')),
+                    key=lambda r: -r['sell_ceiling'])
+    for n, r in enumerate(ranked, 1):
+        r['sell_ceiling_rank'] = n
     eligible = []
     for r in rows:
         myp = r.get('my_price')
-        floor = r.get('stockpile_floor')
-        price_in_floor = ((floor is not None and myp is not None and myp <= floor)
-                          or (floor is None and myp is not None and myp < STOCKPILE_THRESHOLD))
-        future_my_ok = (r.get('my_pred_3day_min') is None
-                        or r.get('my_pred_confidence', 0) < WAIT_MIN_CONFIDENCE
-                        or (myp is not None and myp <= r['my_pred_3day_min']))
+        pos = r.get('stockpile_pos')
+        price_in_floor = pos is not None and pos <= STOCKPILE_POS_LIMIT
+        # v5.1.5: 原本是「今日買價 <= 未來 3 天預測最低」硬比 + 信心 <50% 直接跳過，
+        #         個位數差距就會誤殺，且 50% 那條線是懸崖（49% 免檢查、51% 錙銖必較）。
+        #         改成信心越低容差越大的斜坡：預測值本來就帶誤差，比較時給對應的緩衝。
+        pred_min = r.get('my_pred_3day_min')
+        if pred_min is None or myp is None:
+            future_my_ok = True
+        else:
+            tol = pred_min * PRED_TOLERANCE_MAX * (1 - r.get('my_pred_confidence', 0))
+            future_my_ok = myp <= pred_min + tol
         future_sell_better = (r.get('fr_pred_7day_max') is not None and myp is not None
                               and region_top_profit is not None
                               and r.get('fr_pred_confidence', 0) >= WAIT_MIN_CONFIDENCE
@@ -169,18 +183,13 @@ def _mark_stockpile(rows, region_top_profit, quota_row, region_max):
         if r['stockpile_eligible']:
             eligible.append(r)
     if eligible:
-        pick = min(eligible, key=lambda r: r['my_price'])
+        pick = max(eligible, key=lambda r: r['sell_ceiling'] or 0)
         pick['stockpile_pick'] = True
         if quota_full:
             pick['stockpile_reason'] = '配額已滿，先消耗'
         else:
             pick['stockpile_reason'] = (f"未來預測賣 {pick['fr_pred_7day_max']} - 買 {pick['my_price']} "
                                         f"= +{pick['fr_pred_7day_max'] - pick['my_price']} > 同區今日最高 +{region_top_profit}")
-
-
-def _date_n_days_ago(current_date, n):
-    from datetime import date, timedelta
-    return (date.fromisoformat(current_date) - timedelta(days=n - 1)).isoformat()
 
 
 def _fmt_offset(current_date, offset):
@@ -312,7 +321,7 @@ def compare():
                            wuling_quota=wuling_quota,
                            region_quota=region_quota_for_date,
                            profit_threshold=PROFIT_THRESHOLD,
-                           stockpile_threshold=STOCKPILE_THRESHOLD,
+                           stockpile_pos_limit=STOCKPILE_POS_LIMIT,
                            wait_gain_ratio=WAIT_GAIN_RATIO,
                            wait_min_confidence=WAIT_MIN_CONFIDENCE,
                            buyable_ratio=BUYABLE_RATIO,

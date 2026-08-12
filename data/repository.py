@@ -452,6 +452,21 @@ def get_price_history(item_id, days=30):
     return [(r['game_date'], r['market_price']) for r in rows]
 
 
+def get_price_extremes(item_id):
+    """取得某物品全期極值：我方買價的最低/最高、好友賣價的最高（不限天數）。"""
+    conn = get_db()
+    my = conn.execute("""
+        SELECT MIN(market_price) AS lo, MAX(market_price) AS hi
+        FROM prices WHERE item_id = ?
+    """, (item_id,)).fetchone()
+    fr = conn.execute("""
+        SELECT MAX(market_price) AS hi
+        FROM friend_prices WHERE item_id = ?
+    """, (item_id,)).fetchone()
+    conn.close()
+    return {'my_low': my['lo'], 'my_high': my['hi'], 'sell_ceiling': fr['hi']}
+
+
 def get_friend_max_price_history(item_id, days=30):
     """取得某物品最近 N 個遊戲日的好友最高價時間序列（依日期遞增）。"""
     conn = get_db()

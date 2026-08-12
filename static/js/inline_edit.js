@@ -21,8 +21,8 @@
         return '<span class="' + cls + '">' + prefix + profit + '</span>';
     }
 
-    // Render badge
-    function renderBadge(profit, myPrice) {
+    // Render badge（建議囤貨由伺服器判斷，每區只推一個，重新整理後才會更新）
+    function renderBadge(profit) {
         var html = '';
         if (profit === null || profit === undefined) {
             html = '<span class="text-muted">-</span>';
@@ -36,9 +36,6 @@
             html = '<span class="badge bg-secondary">持平</span>';
         } else {
             html = '<span class="badge bg-danger">虧損</span>';
-        }
-        if (myPrice !== null && myPrice !== undefined && myPrice < window.STOCKPILE_THRESHOLD) {
-            html += '<br><span class="badge bg-warning text-dark mt-1">建議囤貨</span>';
         }
         return html;
     }
@@ -163,7 +160,7 @@
 
             // Update badge
             var badgeCell = row.querySelector('.badge-cell');
-            badgeCell.innerHTML = renderBadge(data.profit, data.my_price);
+            badgeCell.innerHTML = renderBadge(data.profit);
 
             // Update row highlight
             updateRowClass(row, data.profit);

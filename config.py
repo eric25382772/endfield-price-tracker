@@ -35,7 +35,10 @@ FUZZY_MATCH_THRESHOLD = 70  # thefuzz uses 0-100 scale
 
 # Trading thresholds
 PROFIT_THRESHOLD = 3000      # 利潤 < 3000 建議不買（配額有限）
-STOCKPILE_THRESHOLD = 1400   # 自己價格 < 1400 建議囤貨（低於基準30%）
+# v5.1.5 囤貨合格線：今日買價落在該物品「史上最低~最高」區間的低 N%（0 = 史上最便宜）
+STOCKPILE_POS_LIMIT = 15
+# v5.1.5 預測容差上限：拿預測值當門檻時給的緩衝，信心越低緩衝越大（信心 1.0 → 0%，信心 0 → 20%）
+PRED_TOLERANCE_MAX = 0.20
 
 # v3.2 等待提示：明日預測利潤需 > 今日 × WAIT_GAIN_RATIO，且信心度 >= WAIT_MIN_CONFIDENCE
 WAIT_GAIN_RATIO = 1.2        # 明日預測比今日高 20% 才值得等

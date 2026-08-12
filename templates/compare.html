@@ -7,7 +7,7 @@
     {# v3.2 / v4.0.1:
        - 必買：同區當日最高利潤 且 利潤 >= profit_threshold（爛日子最高也不到門檻 → 掉成「可買」）
        - 別買：該物品明日預測利潤 > 同區今日最高利潤 × wait_gain_ratio + 信心度 + 配額未滿（= 今天先別買、明天再買）
-       - 建議囤貨：每區只留一個 = 合格物品中買入價最低者（合格判斷見 app.py _mark_stockpile）
+       - 建議囤貨：每區只留一個 = 合格物品中好友賣價天花板最高者（合格判斷見 app.py _mark_stockpile）
        必買/可買 與 建議囤貨 可同時出現，由使用者決定要囤還是現賣。
     #}
     {% set quota_not_full = (region_quota is none) or (region_quota.remaining < region_max) %}
@@ -43,7 +43,7 @@
     {% endif %}
     {% if item.stockpile_pick %}
         <br><span class="badge bg-warning text-dark mt-1"
-                 title="本區買入價最低的囤貨選擇。{% if item.stockpile_floor is not none %}近 30 天 P25 = {{ item.stockpile_floor }}{% else %}預設門檻 {{ stockpile_threshold }}{% endif %}；{{ item.stockpile_reason }}">建議囤貨</span>
+                 title="本區賣出天花板最高的囤貨選擇。買價 {{ item.my_price }} 落在史上 {{ item.my_low }}~{{ item.my_high }} 的 {{ item.stockpile_pos }}%（合格線 {{ stockpile_pos_limit }}%）；好友史上最高賣 {{ item.sell_ceiling }}，同區第 {{ item.sell_ceiling_rank }} 名；{{ item.stockpile_reason }}">建議囤貨</span>
     {% endif %}
     {% if item.pred_thin %}
         <br><span class="badge bg-secondary mt-1" title="此物品歷史樣本太少，預測信心 {{ (item.pred_confidence*100)|int }}%，相關建議僅供參考">&#9888; 資料不足，僅供參考</span>
@@ -409,7 +409,6 @@
 {% block scripts %}
 <script>
     window.PROFIT_THRESHOLD = {{ profit_threshold }};
-    window.STOCKPILE_THRESHOLD = {{ stockpile_threshold }};
 </script>
 <script>
 // 地區分頁：切換 / 記憶上次地區 / 掃描時自動跳轉（setCompareRegion 由 base.html 輪詢呼叫）
