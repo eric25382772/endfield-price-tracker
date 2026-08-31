@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 *.pyo
 data/prices.db
+data/prices.db-wal
+data/prices.db-shm
 data/prices.db.bak-*
 data/scan_status.json
 data/f2_decision.json

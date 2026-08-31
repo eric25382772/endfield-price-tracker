@@ -10,6 +10,12 @@ def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # scanner 與 Flask 是兩支行程共用同一個 db。預設的 rollback journal 下，
+    # 寫入期間讀取會被鎖住、預設等 5 秒就丟 OperationalError（剛按 F2 又重整網頁就會撞到）。
+    # WAL 讓讀寫互不阻塞；WAL 下 synchronous=NORMAL 仍是防毀損安全的。
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 
@@ -107,8 +113,10 @@ def init_db():
 
 def reset_db():
     """Drop and recreate all tables."""
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
+    # WAL 下未 checkpoint 的資料在 -wal 裡；只刪主檔會被殘留的 -wal 帶回舊資料
+    for path in (DB_PATH, DB_PATH + '-wal', DB_PATH + '-shm'):
+        if os.path.exists(path):
+            os.remove(path)
     init_db()
 
 
