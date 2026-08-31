@@ -27,7 +27,7 @@ import mss.tools
 
 import updater
 from version import __version__
-from config import get_game_date, REGIONS, UPLOAD_FOLDER
+from config import get_game_date, REGIONS, UPLOAD_FOLDER, UPLOAD_RETENTION_DAYS
 from data.models import init_db
 from data.items import VALLEY_IV_GOODS, WULING_GOODS
 from data.repository import (
@@ -153,6 +153,26 @@ def _rotate_log(path):
             path.rename(backup)
     except Exception:
         pass
+
+
+def _purge_old_uploads():
+    """F2/F3/F4 的暫存截圖只增不減，硬碟會被慢慢吃光（開發機累積到 1.9 GB / 2,875 檔）。
+    啟動時刪掉超過 UPLOAD_RETENTION_DAYS 天的；近幾天的留著，查辨識錯誤要靠原始截圖。
+    uploads 是純原料，app.py 不讀它，歷史與預測都走 prices.db。"""
+    cutoff = time.time() - UPLOAD_RETENTION_DAYS * 86400
+    removed = 0
+    try:
+        for f in Path(UPLOAD_FOLDER).iterdir():
+            try:
+                if f.is_file() and f.stat().st_mtime < cutoff:
+                    f.unlink()
+                    removed += 1
+            except OSError:
+                pass
+    except OSError:
+        return
+    if removed:
+        print(f"[清理] 刪除 {removed} 張超過 {UPLOAD_RETENTION_DAYS} 天的暫存截圖")
 
 
 def _setup_output():
@@ -1409,6 +1429,8 @@ def main():
         updater.restart()  # 不返回
 
     init_db()
+
+    _purge_old_uploads()
 
     # 清掉上一輪殘留的收工旗標，避免一啟動就被誤判關閉
     try:

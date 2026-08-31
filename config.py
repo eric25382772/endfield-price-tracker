@@ -25,6 +25,10 @@ else:
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'bmp'}
 
+# 暫存截圖保留天數：uploads 只增不減會把硬碟吃光（開發機曾累積 1.9 GB）。
+# 留幾天是因為查辨識錯誤要靠原始截圖，不要調太短。
+UPLOAD_RETENTION_DAYS = 7
+
 # Game
 GAME_RESET_HOUR = 4  # Daily reset at 4 AM
 
