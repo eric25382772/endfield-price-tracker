@@ -7,7 +7,7 @@ from pathlib import Path
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, send_from_directory, abort, Response
 from config import (
     REGIONS, get_game_date, PROFIT_THRESHOLD, STOCKPILE_POS_LIMIT, PRED_TOLERANCE_MAX,
-    WAIT_GAIN_RATIO, WAIT_MIN_CONFIDENCE, BUYABLE_RATIO,
+    CROSS_BUY_WINDOW, WAIT_GAIN_RATIO, WAIT_MIN_CONFIDENCE, BUYABLE_RATIO,
     SELL_RISING_MARGIN, DATA_THIN_CONFIDENCE,
 )
 from data.models import init_db
@@ -131,8 +131,8 @@ def _attach_forecast(rows, region, current_date, hist_cache):
         # v3.2 補：跨日最佳 = 今天買 + 未來某天賣 (D+1..D+7) → friend 預測最高的那天
         # v5.1.6: 買進日不再寫死今天。原本只准今天買，遇到「明天買價更低」時算出來的
         #         利潤不是真正的最大值，還會跟同一列的「別買 / 建議囤貨」講反話。
-        #         改成買進日也在 D+0..D+3 裡挑（與建議囤貨同一個 3 天窗口），賣出日必須晚於買進日。
-        buys = [(0, r.get('my_price'))] + [(d + 1, p) for d, p in enumerate(my_preds[:3])]
+        #         改成買進日也能往後挑（窗口見 CROSS_BUY_WINDOW），賣出日必須晚於買進日。
+        buys = [(0, r.get('my_price'))] + [(d + 1, p) for d, p in enumerate(my_preds[:CROSS_BUY_WINDOW])]
         sells = [(d + 1, p) for d, p in enumerate(fr_preds)]
         pairs = [(sp - bp, bo, bp, so, sp)
                  for bo, bp in buys if bp is not None
