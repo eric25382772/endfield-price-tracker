@@ -1,4 +1,10 @@
-"""Find item card positions in market screenshots."""
+"""Find item card positions in market screenshots.
+
+用法：python tools/find_positions.py <武陵截圖> <谷地截圖>
+截圖從 uploads/ 挑（只保留最近 7 天，見 config.UPLOAD_RETENTION_DAYS）。
+"""
+import sys
+
 import cv2
 import numpy as np
 
@@ -70,5 +76,8 @@ def analyze(path, label):
             print(f"    Card {j}: x={x1}-{x2}, y={y1}-{y2} ({x2-x1}x{y2-y1})")
 
 
-analyze('g:/project/uploads/tmpodiqq9_8.png', 'Wuling')
-analyze('g:/project/uploads/tmp_f5_f1om.png', 'Valley IV')
+if __name__ == '__main__':
+    if len(sys.argv) != 3:
+        sys.exit(__doc__)
+    analyze(sys.argv[1], 'Wuling')
+    analyze(sys.argv[2], 'Valley IV')

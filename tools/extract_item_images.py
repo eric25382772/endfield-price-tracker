@@ -167,8 +167,10 @@ def copy_to_static():
 
 
 if __name__ == '__main__':
-    wuling_path = 'g:/project/uploads/tmpodiqq9_8.png'
-    valley_path = 'g:/project/uploads/tmp_f5_f1om.png'
+    if len(sys.argv) != 3:
+        sys.exit('用法：python tools/extract_item_images.py <武陵截圖> <谷地截圖>\n'
+                 '截圖從 uploads/ 挑（只保留最近 7 天，見 config.UPLOAD_RETENTION_DAYS）。')
+    wuling_path, valley_path = sys.argv[1], sys.argv[2]
 
     print("=== Wuling ===")
     extract_wuling(wuling_path)
