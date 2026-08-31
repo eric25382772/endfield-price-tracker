@@ -123,17 +123,3 @@ def _calc_region_drift(region_history, from_date):
     if not ratios:
         return 1.0
     return statistics.mean(ratios)
-
-
-def predict_next_week(series):
-    """向後相容：只回傳第 7 天的單一預測值（不帶 region drift）。"""
-    result = predict_series(series, n_future=7)
-    if not result['predictions']:
-        return {'predicted': None,
-                'confidence': result['confidence'],
-                'sample_size': result['sample_size']}
-    return {
-        'predicted': result['predictions'][-1]['predicted'],
-        'confidence': result['confidence'],
-        'sample_size': result['sample_size'],
-    }

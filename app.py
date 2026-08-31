@@ -16,7 +16,7 @@ from data.repository import (
     upsert_price, upsert_quota, get_quota,
     get_available_dates,
     upsert_friend_price,
-    get_friend_names, get_profit_comparison, get_item_profit,
+    get_profit_comparison, get_item_profit,
     get_friend_name_aliases, set_friend_name_alias, rename_friend_prices,
     get_active_stockpile, mark_stockpile_sold_by_item,
     snapshot_date, delete_date_data, restore_snapshot,
@@ -109,6 +109,17 @@ def _attach_forecast(rows, region, current_date, hist_cache):
             r['my_pred_3day_min'] = None
             r['my_pred_3day_min_offset'] = None
 
+        # v5.1.5: 今天是不是未來 3 天最便宜。原本是硬比 + 信心 <50% 直接跳過，
+        #         個位數差距就會誤殺，且 50% 那條線是懸崖（49% 免檢查、51% 錙銖必較）。
+        #         改成信心越低容差越大的斜坡：預測值本來就帶誤差，比較時給對應的緩衝。
+        # v5.1.6: 從 _mark_stockpile 搬上來，讓「建議囤貨」和「跨日最佳」共用同一條判斷。
+        pred_min = r['my_pred_3day_min']
+        if pred_min is None or r.get('my_price') is None:
+            r['today_is_cheapest'] = True
+        else:
+            tol = pred_min * PRED_TOLERANCE_MAX * (1 - r['my_pred_confidence'])
+            r['today_is_cheapest'] = r['my_price'] <= pred_min + tol
+
         # v3.2 補：未來 7 天 fr 最高（B 囤貨持有、C 跨日最佳用）
         if fr_preds:
             r['fr_pred_7day_max'] = max(fr_preds)
@@ -164,15 +175,7 @@ def _mark_stockpile(rows, region_top_profit, quota_row, region_max):
         myp = r.get('my_price')
         pos = r.get('stockpile_pos')
         price_in_floor = pos is not None and pos <= STOCKPILE_POS_LIMIT
-        # v5.1.5: 原本是「今日買價 <= 未來 3 天預測最低」硬比 + 信心 <50% 直接跳過，
-        #         個位數差距就會誤殺，且 50% 那條線是懸崖（49% 免檢查、51% 錙銖必較）。
-        #         改成信心越低容差越大的斜坡：預測值本來就帶誤差，比較時給對應的緩衝。
-        pred_min = r.get('my_pred_3day_min')
-        if pred_min is None or myp is None:
-            future_my_ok = True
-        else:
-            tol = pred_min * PRED_TOLERANCE_MAX * (1 - r.get('my_pred_confidence', 0))
-            future_my_ok = myp <= pred_min + tol
+        future_my_ok = r.get('today_is_cheapest', True)
         future_sell_better = (r.get('fr_pred_7day_max') is not None and myp is not None
                               and region_top_profit is not None
                               and r.get('fr_pred_confidence', 0) >= WAIT_MIN_CONFIDENCE
@@ -209,7 +212,6 @@ def compare():
     current_date = get_game_date()
     date = selected_date or current_date
     available = get_available_dates()
-    friends = get_friend_names(date)
 
     valley_comparison = get_profit_comparison('valley_iv', date)
     wuling_comparison = get_profit_comparison('wuling', date)
@@ -243,6 +245,8 @@ def compare():
     wuling_best = pick_best(wuling_comparison)
 
     # v3.2 補：region 級的「跨日最佳」 — 同區內 cross_day_profit 最高且 > region_top + 500 + 信心 ≥ 0.5 的單一物品
+    # v5.1.6：加「今天是未來 3 天最便宜」門檻。原本只看今天買價，會在預測明天更便宜時
+    #         仍喊「今天買」，跟同一列的「建議囤貨」互相打架。
     def pick_cross_best(rows, region_top):
         if not region_top:
             return None
@@ -250,6 +254,7 @@ def compare():
         candidates = [r for r in rows
                       if r.get('cross_day_profit') is not None
                       and r['cross_day_profit'] > floor
+                      and r.get('today_is_cheapest')
                       and r.get('my_pred_confidence', 0) >= WAIT_MIN_CONFIDENCE
                       and r.get('fr_pred_confidence', 0) >= WAIT_MIN_CONFIDENCE]
         return max(candidates, key=lambda x: x['cross_day_profit']) if candidates else None
@@ -315,7 +320,6 @@ def compare():
                            valley_best=valley_best,
                            wuling_best=wuling_best,
                            top_profitable=profitable[:5],
-                           friends=friends,
                            stockpile=stockpile,
                            valley_quota=valley_quota,
                            wuling_quota=wuling_quota,
@@ -553,23 +557,6 @@ def restore_today():
     except Exception as e:
         flash(f'回復失敗：{e}', 'danger')
     return redirect(url_for('compare', date=game_date))
-
-
-HEARTBEAT_FILE = Path(__file__).parent / 'data' / 'heartbeat.json'
-
-
-@app.route('/api/heartbeat', methods=['POST'])
-def api_heartbeat():
-    """網頁每 2 秒 ping 一次，scanner 沒收到心跳就自動退出。"""
-    try:
-        HEARTBEAT_FILE.parent.mkdir(parents=True, exist_ok=True)
-        HEARTBEAT_FILE.write_text(
-            json.dumps({'ts': datetime.now().isoformat()}),
-            encoding='utf-8',
-        )
-    except Exception:
-        pass
-    return jsonify(ok=True)
 
 
 @app.route('/api/status')

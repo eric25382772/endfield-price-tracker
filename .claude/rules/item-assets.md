@@ -37,4 +37,4 @@ INSERT OR IGNORE INTO items (id, name_cn, ...) VALUES (22, ...);
 ## 目前 id 配置
 
 - 四號谷地：item_id 1-12（7+5 佈局）
-- 武陵：item_id 13-20（v3.0 起 7+1）
+- 武陵：item_id 13-23（v5.0 起 7+4，共 11 項）

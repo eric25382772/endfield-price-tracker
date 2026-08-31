@@ -4,12 +4,11 @@ __pycache__/
 data/prices.db
 data/prices.db.bak-*
 data/scan_status.json
-data/heartbeat.json
 data/f2_decision.json
 data/reset_backup_*.json
 data/.recorded_at_tz_fixed
-data/friend_ocr_debug.log
-data/scanner.log
+data/friend_ocr_debug.log*
+data/scanner.log*
 data/shutdown.flag
 data/scanner.pids.json
 data/update_status.json
@@ -30,3 +29,5 @@ installer/InnoDownloadPlugin/
 installer/python-*.exe
 EndfieldTracker_Setup_*.exe
 update_v*.zip
+# 根目錄的分析／體檢報告（給人看的一次性 HTML，不進版控；templates/ 不受影響）
+/*.html

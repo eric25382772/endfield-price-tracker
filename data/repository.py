@@ -64,23 +64,6 @@ def get_quota(region, game_date=None):
     return dict(row) if row else None
 
 
-def get_prices_by_date_and_region(region, game_date=None):
-    """Get prices for a specific region and game date."""
-    if game_date is None:
-        game_date = get_game_date()
-    conn = get_db()
-    rows = conn.execute("""
-        SELECT i.id as item_id, i.name_cn, i.name_en, i.base_price, i.region,
-               p.market_price, p.source, p.recorded_at
-        FROM items i
-        LEFT JOIN prices p ON i.id = p.item_id AND p.game_date = ?
-        WHERE i.region = ?
-        ORDER BY i.id
-    """, (game_date, region)).fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
-
-
 def delete_friend_prices_for_item(item_id, game_date=None):
     """Delete all friend prices for a specific item on a date (before re-scanning)."""
     if game_date is None:
@@ -108,56 +91,6 @@ def upsert_friend_price(item_id, market_price, friend_name='好友', game_date=N
     """, (item_id, friend_name, market_price, game_date, source))
     conn.commit()
     conn.close()
-
-
-def get_friend_prices_by_date_and_region(region, friend_name=None, game_date=None):
-    """Get friend prices for a region. If friend_name is None, get best (highest) price per item."""
-    if game_date is None:
-        game_date = get_game_date()
-    conn = get_db()
-    if friend_name:
-        rows = conn.execute("""
-            SELECT i.id as item_id, i.name_cn, i.name_en, i.base_price, i.region,
-                   fp.market_price, fp.friend_name, fp.source, fp.recorded_at
-            FROM items i
-            LEFT JOIN friend_prices fp ON i.id = fp.item_id AND fp.game_date = ? AND fp.friend_name = ?
-            WHERE i.region = ?
-            ORDER BY i.id
-        """, (game_date, friend_name, region)).fetchall()
-    else:
-        # Get the highest friend price per item (best selling opportunity)
-        rows = conn.execute("""
-            SELECT i.id as item_id, i.name_cn, i.name_en, i.base_price, i.region,
-                   fp.market_price, fp.friend_name, fp.source, fp.recorded_at
-            FROM items i
-            LEFT JOIN (
-                SELECT item_id, market_price, friend_name, source, recorded_at
-                FROM friend_prices
-                WHERE game_date = ?
-                AND market_price = (
-                    SELECT MAX(fp2.market_price)
-                    FROM friend_prices fp2
-                    WHERE fp2.item_id = friend_prices.item_id AND fp2.game_date = friend_prices.game_date
-                )
-            ) fp ON i.id = fp.item_id
-            WHERE i.region = ?
-            ORDER BY i.id
-        """, (game_date, region)).fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
-
-
-def get_friend_names(game_date=None):
-    """Get list of friend names that have price data for a date."""
-    if game_date is None:
-        game_date = get_game_date()
-    conn = get_db()
-    rows = conn.execute("""
-        SELECT DISTINCT friend_name FROM friend_prices
-        WHERE game_date = ? ORDER BY friend_name
-    """, (game_date,)).fetchall()
-    conn.close()
-    return [row['friend_name'] for row in rows]
 
 
 # ===== 好友名稱正規化（v4.1） =====
@@ -209,37 +142,44 @@ def rename_friend_prices(raw_name, canonical):
     return n
 
 
+# 整區（get_profit_comparison）與單一物品（get_item_profit）只差 WHERE 與排序，SQL 本體共用一份。
+# 兩者原本是各自一份複製品：表格走前者、網頁手動改價後的即時回填走後者，改到一邊漏一邊
+# 就會出現「表格跟改完的那列對不上」。{where} 只填程式內固定字串，不接外部輸入。
+_PROFIT_SQL = """
+    SELECT i.id as item_id, i.name_cn, i.name_en, i.base_price, i.region,
+           p.market_price as my_price,
+           fp_best.best_price as friend_price,
+           fp_best.best_friend_name as best_friend,
+           CASE
+               WHEN p.market_price IS NOT NULL AND fp_best.best_price IS NOT NULL
+               THEN fp_best.best_price - p.market_price
+               ELSE NULL
+           END as profit
+    FROM items i
+    LEFT JOIN prices p ON i.id = p.item_id AND p.game_date = ?
+    LEFT JOIN (
+        SELECT fp.item_id,
+               fp.market_price as best_price,
+               fp.friend_name as best_friend_name
+        FROM friend_prices fp
+        WHERE fp.game_date = ?
+          AND fp.market_price = (
+              SELECT MAX(fp2.market_price)
+              FROM friend_prices fp2
+              WHERE fp2.item_id = fp.item_id AND fp2.game_date = fp.game_date
+          )
+        GROUP BY fp.item_id
+    ) fp_best ON i.id = fp_best.item_id
+    WHERE {where}
+"""
+
+
 def get_profit_comparison(region, game_date=None):
     """Compare self prices vs best friend prices, calculate profit, sorted by profit desc."""
     if game_date is None:
         game_date = get_game_date()
     conn = get_db()
-    rows = conn.execute("""
-        SELECT i.id as item_id, i.name_cn, i.name_en, i.base_price, i.region,
-               p.market_price as my_price,
-               fp_best.best_price as friend_price,
-               fp_best.best_friend_name as best_friend,
-               CASE
-                   WHEN p.market_price IS NOT NULL AND fp_best.best_price IS NOT NULL
-                   THEN fp_best.best_price - p.market_price
-                   ELSE NULL
-               END as profit
-        FROM items i
-        LEFT JOIN prices p ON i.id = p.item_id AND p.game_date = ?
-        LEFT JOIN (
-            SELECT fp.item_id,
-                   fp.market_price as best_price,
-                   fp.friend_name as best_friend_name
-            FROM friend_prices fp
-            WHERE fp.game_date = ?
-              AND fp.market_price = (
-                  SELECT MAX(fp2.market_price)
-                  FROM friend_prices fp2
-                  WHERE fp2.item_id = fp.item_id AND fp2.game_date = fp.game_date
-              )
-            GROUP BY fp.item_id
-        ) fp_best ON i.id = fp_best.item_id
-        WHERE i.region = ?
+    rows = conn.execute(_PROFIT_SQL.format(where='i.region = ?') + """
         ORDER BY
             CASE WHEN p.market_price IS NOT NULL AND fp_best.best_price IS NOT NULL
                  THEN fp_best.best_price - p.market_price END DESC
@@ -253,33 +193,8 @@ def get_item_profit(item_id, game_date=None):
     if game_date is None:
         game_date = get_game_date()
     conn = get_db()
-    row = conn.execute("""
-        SELECT i.id as item_id, i.name_cn, i.name_en, i.base_price, i.region,
-               p.market_price as my_price,
-               fp_best.best_price as friend_price,
-               fp_best.best_friend_name as best_friend,
-               CASE
-                   WHEN p.market_price IS NOT NULL AND fp_best.best_price IS NOT NULL
-                   THEN fp_best.best_price - p.market_price
-                   ELSE NULL
-               END as profit
-        FROM items i
-        LEFT JOIN prices p ON i.id = p.item_id AND p.game_date = ?
-        LEFT JOIN (
-            SELECT fp.item_id,
-                   fp.market_price as best_price,
-                   fp.friend_name as best_friend_name
-            FROM friend_prices fp
-            WHERE fp.game_date = ?
-              AND fp.market_price = (
-                  SELECT MAX(fp2.market_price)
-                  FROM friend_prices fp2
-                  WHERE fp2.item_id = fp.item_id AND fp2.game_date = fp.game_date
-              )
-            GROUP BY fp.item_id
-        ) fp_best ON i.id = fp_best.item_id
-        WHERE i.id = ?
-    """, (game_date, game_date, item_id)).fetchone()
+    row = conn.execute(_PROFIT_SQL.format(where='i.id = ?'),
+                       (game_date, game_date, item_id)).fetchone()
     conn.close()
     return dict(row) if row else None
 

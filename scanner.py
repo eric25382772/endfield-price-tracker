@@ -51,7 +51,6 @@ my_scan_active = threading.Event()  # F2 辨識中，F3 需等待避免畫面混
 f2_ready = threading.Event()  # F2 已成功完成過至少一次且目前未在跑，F3 才能處理
 
 SCAN_STATUS_FILE = Path(__file__).parent / 'data' / 'scan_status.json'
-HEARTBEAT_FILE = Path(__file__).parent / 'data' / 'heartbeat.json'
 # 網頁全部關閉時，Flask 端寫此旗標；scanner 讀到就結束整組程式
 SHUTDOWN_FILE = Path(__file__).parent / 'data' / 'shutdown.flag'
 # 記錄本輪 spawn 的 PID（scanner 自己 + Flask），供下次啟動清理沒關乾淨的殘留
@@ -142,6 +141,20 @@ def clear_pending_f2():
     _patch_status_field('pending_f2', None)
 
 
+LOG_MAX_BYTES = 5 * 1024 * 1024
+
+
+def _rotate_log(path):
+    """log 只增不減，超過 LOG_MAX_BYTES 就轉存成 .1（舊的 .1 直接蓋掉），只留兩代。"""
+    try:
+        if path.exists() and path.stat().st_size > LOG_MAX_BYTES:
+            backup = path.with_suffix(path.suffix + '.1')
+            backup.unlink(missing_ok=True)
+            path.rename(backup)
+    except Exception:
+        pass
+
+
 def _setup_output():
     """pythonw 啟動時沒有 console，sys.stdout/stderr 為 None，print 會直接炸。
     導向 data/scanner.log，讓隱藏視窗模式仍能事後查 F4/OCR 有沒有出錯。"""
@@ -149,6 +162,7 @@ def _setup_output():
         return
     try:
         LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _rotate_log(LOG_FILE)
         f = open(LOG_FILE, 'a', encoding='utf-8', buffering=1)
         sys.stdout = f
         sys.stderr = f
@@ -1146,6 +1160,7 @@ def process_friend_prices(filepath):
         # 診斷 log：原始 OCR + 配對/正規化結果，方便事後查名字/價格認錯
         try:
             from datetime import datetime as _dt
+            _rotate_log(FRIEND_OCR_DEBUG_LOG)
             with open(FRIEND_OCR_DEBUG_LOG, 'a', encoding='utf-8') as _f:
                 _f.write(f"\n===== {_dt.now():%Y-%m-%d %H:%M:%S}  item_{item_id} {item_name} ({region_name}) =====\n")
                 _f.write("-- 原始 OCR 區塊（依 y, x 排序）--\n")
@@ -1292,29 +1307,6 @@ def watchdog_update_request():
         except Exception:
             pass
         time.sleep(1)
-
-
-def watchdog_heartbeat(grace=30, timeout=15):
-    """網頁每 2 秒 POST /api/heartbeat 更新 heartbeat.json。
-    若超過 `timeout` 秒沒心跳（啟動 `grace` 秒後開始檢查），視為網頁已關閉，觸發退出。"""
-    # 清掉舊 heartbeat，避免用上次殘留值
-    try:
-        if HEARTBEAT_FILE.exists():
-            HEARTBEAT_FILE.unlink()
-    except Exception:
-        pass
-    time.sleep(grace)
-    while not _shutdown_event.is_set():
-        try:
-            if HEARTBEAT_FILE.exists():
-                age = time.time() - HEARTBEAT_FILE.stat().st_mtime
-                if age > timeout:
-                    print(f"\n網頁已關閉超過 {int(age)} 秒，自動結束掃描器...")
-                    _shutdown_event.set()
-                    return
-        except Exception:
-            pass
-        time.sleep(2)
 
 
 def quit_hotkey_listener():
