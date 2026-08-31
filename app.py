@@ -74,11 +74,12 @@ def update_quota():
     return redirect(url_for('index', date=game_date))
 
 
-def _attach_forecast(rows, region, current_date, hist_cache):
+def _attach_forecast(rows, region, current_date, hist_cache, buy_window=CROSS_BUY_WINDOW):
     """對每列 in-place 加 my_pred / fr_pred / pred_profit / pred_confidence。
 
     hist_cache: {region: {'my': {item_id: series}, 'fr': {item_id: series}}}
     讓後續囤貨段重用同 region fr_hist 並計算 drift，避免重查 DB / 混兩區。
+    buy_window: 跨日最佳的買進日最多可往後幾天；0 = 只准今天買。
     """
     my_hist = {r['item_id']: get_price_history(r['item_id'], days=60) for r in rows}
     fr_hist = {r['item_id']: get_friend_max_price_history(r['item_id'], days=60) for r in rows}
@@ -132,7 +133,7 @@ def _attach_forecast(rows, region, current_date, hist_cache):
         # v5.1.6: 買進日不再寫死今天。原本只准今天買，遇到「明天買價更低」時算出來的
         #         利潤不是真正的最大值，還會跟同一列的「別買 / 建議囤貨」講反話。
         #         改成買進日也能往後挑（窗口見 CROSS_BUY_WINDOW），賣出日必須晚於買進日。
-        buys = [(0, r.get('my_price'))] + [(d + 1, p) for d, p in enumerate(my_preds[:CROSS_BUY_WINDOW])]
+        buys = [(0, r.get('my_price'))] + [(d + 1, p) for d, p in enumerate(my_preds[:buy_window])]
         sells = [(d + 1, p) for d, p in enumerate(fr_preds)]
         pairs = [(sp - bp, bo, bp, so, sp)
                  for bo, bp in buys if bp is not None
@@ -237,11 +238,27 @@ def compare():
         if raw:
             r['best_friend'] = _aliases.get(raw, raw)
 
+    # 配額先查：跨日最佳要用它決定買進日能不能往後挪（見下方 _buy_window）
+    valley_quota = get_quota('valley_iv', date)
+    wuling_quota = get_quota('wuling', date)
+
+    def _buy_window(region, quota_row):
+        """配額是每天累加到上限，沒買滿不會歸零，所以「明天再買」通常不虧。
+        但頂到上限時當天的額度就真的蒸發了，這種情況只准今天買。
+        （與 _mark_stockpile 的「配額已滿，先消耗」同一個判斷。）"""
+        cfg = get_region_quota(region, date) or {}
+        region_max = cfg.get('max')
+        if quota_row and region_max and quota_row.get('remaining', 0) >= region_max:
+            return 0
+        return CROSS_BUY_WINDOW
+
     # v3.2：每物品掛上明日預測（my_pred / fr_pred / pred_profit / pred_confidence）
     # 預測 from_date 用 selected date，讓選歷史日期時也能看到「當天的明日預測」
     hist_cache = {}
-    _attach_forecast(valley_comparison, 'valley_iv', date, hist_cache)
-    _attach_forecast(wuling_comparison, 'wuling', date, hist_cache)
+    _attach_forecast(valley_comparison, 'valley_iv', date, hist_cache,
+                     _buy_window('valley_iv', valley_quota))
+    _attach_forecast(wuling_comparison, 'wuling', date, hist_cache,
+                     _buy_window('wuling', wuling_quota))
 
     # 擇一最高利潤（配額限制下實際只能挑一種貨買）
     def pick_best(rows):
@@ -272,10 +289,8 @@ def compare():
     profitable = [r for r in all_items if r['profit'] is not None and r['profit'] > 0]
     profitable.sort(key=lambda x: x['profit'], reverse=True)
 
-    # 囤貨 + 剩餘配額
+    # 囤貨（配額已在前面查過，跨日最佳要用）
     stockpile = get_active_stockpile(date)
-    valley_quota = get_quota('valley_iv', date)
-    wuling_quota = get_quota('wuling', date)
 
     # v3.2：囤貨也加上「未來 7 天好友最高價」預測 + 信心度（最佳賣日，用該物品所屬 region 算 drift）
     for s in stockpile:
