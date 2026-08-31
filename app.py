@@ -129,20 +129,27 @@ def _attach_forecast(rows, region, current_date, hist_cache):
             r['fr_pred_7day_max_offset'] = None
 
         # v3.2 補：跨日最佳 = 今天買 + 未來某天賣 (D+1..D+7) → friend 預測最高的那天
-        my_today = r.get('my_price')
-        if my_today is not None and fr_preds:
-            candidates = [(d + 1, fr_preds[d]) for d in range(len(fr_preds)) if fr_preds[d] is not None]
-            if candidates:
-                best_sell, best_fr = max(candidates, key=lambda x: x[1])
-                r['cross_day_profit'] = best_fr - my_today
-                r['cross_day_sell_offset'] = best_sell
-                r['cross_day_sell_date'] = _fmt_offset(current_date, best_sell)
-            else:
-                r['cross_day_profit'] = None
-                r['cross_day_sell_offset'] = None
-                r['cross_day_sell_date'] = None
+        # v5.1.6: 買進日不再寫死今天。原本只准今天買，遇到「明天買價更低」時算出來的
+        #         利潤不是真正的最大值，還會跟同一列的「別買 / 建議囤貨」講反話。
+        #         改成買進日也在 D+0..D+3 裡挑（與建議囤貨同一個 3 天窗口），賣出日必須晚於買進日。
+        buys = [(0, r.get('my_price'))] + [(d + 1, p) for d, p in enumerate(my_preds[:3])]
+        sells = [(d + 1, p) for d, p in enumerate(fr_preds)]
+        pairs = [(sp - bp, bo, bp, so, sp)
+                 for bo, bp in buys if bp is not None
+                 for so, sp in sells if sp is not None and so > bo]
+        if pairs:
+            profit, buy_offset, buy_price, sell_offset, _ = max(pairs, key=lambda x: x[0])
+            r['cross_day_profit'] = profit
+            r['cross_day_buy_offset'] = buy_offset
+            r['cross_day_buy_price'] = buy_price
+            r['cross_day_buy_date'] = _fmt_offset(current_date, buy_offset)
+            r['cross_day_sell_offset'] = sell_offset
+            r['cross_day_sell_date'] = _fmt_offset(current_date, sell_offset)
         else:
             r['cross_day_profit'] = None
+            r['cross_day_buy_offset'] = None
+            r['cross_day_buy_price'] = None
+            r['cross_day_buy_date'] = None
             r['cross_day_sell_offset'] = None
             r['cross_day_sell_date'] = None
 
@@ -245,8 +252,7 @@ def compare():
     wuling_best = pick_best(wuling_comparison)
 
     # v3.2 補：region 級的「跨日最佳」 — 同區內 cross_day_profit 最高且 > region_top + 500 + 信心 ≥ 0.5 的單一物品
-    # v5.1.6：加「今天是未來 3 天最便宜」門檻。原本只看今天買價，會在預測明天更便宜時
-    #         仍喊「今天買」，跟同一列的「建議囤貨」互相打架。
+    # v5.1.6：買進日由 cross_day 自己挑（見 _attach_forecast），這裡不再限定今天
     def pick_cross_best(rows, region_top):
         if not region_top:
             return None
@@ -254,7 +260,6 @@ def compare():
         candidates = [r for r in rows
                       if r.get('cross_day_profit') is not None
                       and r['cross_day_profit'] > floor
-                      and r.get('today_is_cheapest')
                       and r.get('my_pred_confidence', 0) >= WAIT_MIN_CONFIDENCE
                       and r.get('fr_pred_confidence', 0) >= WAIT_MIN_CONFIDENCE]
         return max(candidates, key=lambda x: x['cross_day_profit']) if candidates else None

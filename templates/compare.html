@@ -158,8 +158,8 @@
             {% endif %}
             {% if valley_cross_best %}
             <span class="text-warning fw-bold small"
-                  title="信心 {{ ((valley_cross_best.my_pred_confidence + valley_cross_best.fr_pred_confidence)/2*100)|int }}%">
-                &#128338; 今天買 → {{ valley_cross_best.cross_day_sell_date }} 賣：{{ valley_cross_best.name_cn }} +{{ valley_cross_best.cross_day_profit }}
+                  title="買價 {{ valley_cross_best.cross_day_buy_price }}{% if valley_cross_best.cross_day_buy_offset %}（預測值，當天請以實際價格為準）{% endif %}；信心 {{ ((valley_cross_best.my_pred_confidence + valley_cross_best.fr_pred_confidence)/2*100)|int }}%">
+                &#128338; {{ valley_cross_best.cross_day_buy_date }}買 → {{ valley_cross_best.cross_day_sell_date }}賣：{{ valley_cross_best.name_cn }} +{{ valley_cross_best.cross_day_profit }}
             </span>
             {% endif %}
         </div>
@@ -251,8 +251,8 @@
             {% endif %}
             {% if wuling_cross_best %}
             <span class="text-warning fw-bold small"
-                  title="信心 {{ ((wuling_cross_best.my_pred_confidence + wuling_cross_best.fr_pred_confidence)/2*100)|int }}%">
-                &#128338; 今天買 → {{ wuling_cross_best.cross_day_sell_date }} 賣：{{ wuling_cross_best.name_cn }} +{{ wuling_cross_best.cross_day_profit }}
+                  title="買價 {{ wuling_cross_best.cross_day_buy_price }}{% if wuling_cross_best.cross_day_buy_offset %}（預測值，當天請以實際價格為準）{% endif %}；信心 {{ ((wuling_cross_best.my_pred_confidence + wuling_cross_best.fr_pred_confidence)/2*100)|int }}%">
+                &#128338; {{ wuling_cross_best.cross_day_buy_date }}買 → {{ wuling_cross_best.cross_day_sell_date }}賣：{{ wuling_cross_best.name_cn }} +{{ wuling_cross_best.cross_day_profit }}
             </span>
             {% endif %}
         </div>
