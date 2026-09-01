@@ -759,7 +759,8 @@ def process_my_prices(filepath):
     """處理一張自己市場的截圖。"""
     global last_f2_region, _completed_count
     my_scan_active.set()
-    set_scan_status('scanning_self', None)
+    # 開掃就清掉上一次的錯誤，否則舊訊息（例如 F4 沒抓到囤貨）會一直跟著後續掃描重複跳出
+    set_scan_status('scanning_self', None, error='')
     saved_count = 0
     region = None
     try:
@@ -1121,7 +1122,7 @@ def process_friend_prices(filepath):
     """處理一張好友價格的截圖。"""
     global _completed_count
     # 還沒辨識物品前不指定區域，避免 stale last_f2_region 在錯區域畫 placeholder
-    set_scan_status('scanning_friend', None)
+    set_scan_status('scanning_friend', None, error='')
     try:
         # Step 1: 圖片比對辨識左側大物品圖 (限定 F2 掃到的區域)
         region_hint = last_f2_region
@@ -1227,7 +1228,7 @@ def scan_friend_prices():
 def process_stockpile(filepath):
     """F4: 只辨識「目前持有」區並儲存囤貨（與 F2 市場掃描分離）。"""
     global _completed_count
-    set_scan_status('scanning_stockpile', None)
+    set_scan_status('scanning_stockpile', None, error='')
     try:
         print("  OCR 辨識中...")
         ocr_results = recognize(filepath)
