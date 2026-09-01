@@ -1,5 +1,16 @@
 # 版本更新紀錄
 
+## v5.1.6
+- **修正掃描狀態的錯誤訊息不會在新一輪掃描開始時清除**：`set_scan_status(error=None)` 的語意是「沿用既有錯誤」，用意是讓訊息撐過一次掃描中的多次狀態寫入而不閃爍，但沒有任何路徑在「新一輪開始」時清空。F4 未辨識到囤貨寫入的提示因此變成常駐：之後每次 F2／F3 開始掃描都把它原樣抄回 `scan_status.json`，網頁輪詢到就再跳一次。F2 僅在成功存到價格時清（`process_my_prices` 收尾），F3 收尾的 `set_scan_status('idle')` 則完全不清。改為 `process_my_prices`／`process_friend_prices`／`process_stockpile` 三處開頭一律帶 `error=''`，該輪自己的錯誤照舊在收尾寫入
+- **修正跨日最佳寫死「今天買」，與同列的別買／建議囤貨互相矛盾**：`_attach_forecast` 的 cross_day 只在賣出日裡挑最高，買進日固定為今天，從不檢查隔天買價是否更低。8/31 武陵實例：選劍鑄爐今日 1543、預測明日 1228，右上仍喊「今天買 +3528」，而同一列因「今天不是未來 3 天最低」而不給建議囤貨。改為買進日也可往後挑（D+0..D+`CROSS_BUY_WINDOW`），賣出日須晚於買進日，取利潤最大組合；另存 buy_offset／buy_price／buy_date，文案改為「MM/DD買 → MM/DD賣」，買進日非今天時 tooltip 標明買價為預測值
+- **買進窗口依 115 天回測定為 D+1**：初版取 D+3 只為對齊建議囤貨的 3 天窗口，無依據。回測（2026-05-08~08-30，無前視，極值與預測皆只用當天為止資料）顯示買進日越遠越不準——買價本身變成預測值。D+0 命中 100%／邊際 +1082；D+1 89%／+999；D+2 83%／+835；D+3 79%／+737，命中率與宣稱灌水皆單調變差；總邊際以 D+1 最高。新增 `CROSS_BUY_WINDOW = 1`。另：配額頂到上限時窗口收回 0（只准今天買），因配額每天累加到上限、沒買滿不歸零，唯獨頂到上限時當天額度才會蒸發
+- **暫存截圖保留 7 天**：`uploads/` 從第一天起只增不減，開發機累積 2,875 檔／1.89 GB；安裝版寫 `%LOCALAPPDATA%\EndfieldTracker\uploads`，同一支程式碼且更新白名單不碰使用者目錄，升級也永遠清不掉。`scanner.py` 加 `_purge_old_uploads()`，`main()` 於 `init_db()` 後跑一次。取 7 天而非 3 天：查辨識錯誤要靠原始截圖（v5.1.3 那次即靠舊截圖找到主因）
+- **Bootstrap／Chart.js 收進 static，移除 CDN 依賴**：原本三個檔每次開頁向 jsdelivr 抓，沒網路就整頁樣式掉光、歷史／預測頁圖表畫不出來。下載進 `static/vendor/`（約 500 KB），改讀本機路徑；updater 白名單已含 `static/`、安裝檔已 recursesubdirs，兩邊不必動
+- **SQLite 開啟 WAL**：scanner 與 Flask 兩支行程共用同一個 `prices.db`，預設 rollback journal 下寫入期間讀取被鎖、預設等 5 秒丟 `OperationalError`。加 `journal_mode=WAL` / `synchronous=NORMAL` / `busy_timeout=5000`；`reset_db()` 一併刪 `-wal`／`-shm`（只刪主檔會被殘留 WAL 帶回舊資料）
+- **Flask `debug=True` 改 `False`**：debug 開著等同在 5000 埠留一個可執行任意 Python 的 Werkzeug 偵錯器（Bandit B201）。只綁本機故風險有限，但除錯輸出本就導向 `data/scanner.log`
+- **清除 8/12 體檢查出的死碼**：`ocr/preprocessor.py` 整檔（零引用）、心跳機制整條（v4.2 改 SSE 後即廢棄）、`repository` 兩個與 `predictor` 一個無呼叫端的函式、`compare.html` 用不到卻每次載入都白查一次的 `friends` 參數，合計 -222 行
+- **開發工具改吃命令列參數**：`tools/find_positions.py`、`tools/extract_item_images.py` 原本寫死 `g:/project/uploads/` 兩張 4 月截圖，暫存截圖改保留 7 天後已不存在
+
 ## v5.1.5
 - **修正建議囤貨只看買入價、不看賣出行情**：`_mark_stockpile()` 從頭到尾只比我方 `market_price`，合格者中挑「買入價最低」，完全沒有任何欄位參照好友價。實例為 8/12 武陵推薦武陵凍梨（賣出天花板 4696，同區 11 名墊底），卻擋掉息壤橋梁（天花板 5215，同區第 2）——而頂部「跨日最佳」黃字推的正是息壤橋梁，兩個建議互相矛盾。改為挑「好友賣價史上最高者」，並在徽章 tooltip 標出天花板與同區名次
 - **囤貨低點判斷由近 30 天 P25 改為全期區間位置**：原本 `stockpile_floor` 取近 30 天我方價格的第 25 百分位，對只有 25 天資料的新物品（息壤橋梁、選劍鑄爐）極不穩定——息壤橋梁今日 1121、門檻 1108，差 13 元（1.2%）即被踢出，而該門檻本身是 25 個樣本算出來的。改為 `get_price_extremes()` 取全期 min/max，判斷「今日買價落在史上區間的低 N%」，`STOCKPILE_POS_LIMIT = 15`。連帶解掉四號谷地的問題：該區近 30 天僅 2 筆，長期算不出 P25 而退回寫死的 1400，等同整區瞎猜
