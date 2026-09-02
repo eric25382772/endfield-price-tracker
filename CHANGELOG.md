@@ -1,5 +1,9 @@
 # 版本更新紀錄
 
+## v6.0
+- **武陵新增 1 貨物**（2026-09-02 遊戲改版）：界石鎖貨組（item_24），武陵物品增至 12 項；市場佈局由 7+4 改為 **7+5**（第 2 行 5 格，`WULING_CARD_POSITIONS.row2` 補上 x=1359）。`image_matcher` 的 id 範圍 13-23 → 13-24、參考圖載入 `range(1, 25)`。三張圖依慣例放三處：`data/item_images/`（辨識用，維持 row1 y 420-660 同框）、`static/images/items/`（compare 縮圖，美術落點偏低故改裁 y 470-710）、`data/item_images/friend/`（好友掃描用）。item id 以顯式 `INSERT ... VALUES (24, ...)` 寫入，避開 AUTOINCREMENT seq 被 `INSERT OR IGNORE` 推高的老問題
+- **武陵每日配額 +200／上限 400 → +215／上限 430**：`REGION_QUOTA_HISTORY` 加 `{'from': '2026-09-02', 'daily': 215, 'max': 430}`。新貨物同樣帶 `from: 2026-09-02`，翻 9/01 以前的資料仍是 11 項與舊配額
+
 ## v5.1.6
 - **修正掃描狀態的錯誤訊息不會在新一輪掃描開始時清除**：`set_scan_status(error=None)` 的語意是「沿用既有錯誤」，用意是讓訊息撐過一次掃描中的多次狀態寫入而不閃爍，但沒有任何路徑在「新一輪開始」時清空。F4 未辨識到囤貨寫入的提示因此變成常駐：之後每次 F2／F3 開始掃描都把它原樣抄回 `scan_status.json`，網頁輪詢到就再跳一次。F2 僅在成功存到價格時清（`process_my_prices` 收尾），F3 收尾的 `set_scan_status('idle')` 則完全不清。改為 `process_my_prices`／`process_friend_prices`／`process_stockpile` 三處開頭一律帶 `error=''`，該輪自己的錯誤照舊在收尾寫入
 - **修正跨日最佳寫死「今天買」，與同列的別買／建議囤貨互相矛盾**：`_attach_forecast` 的 cross_day 只在賣出日裡挑最高，買進日固定為今天，從不檢查隔天買價是否更低。8/31 武陵實例：選劍鑄爐今日 1543、預測明日 1228，右上仍喊「今天買 +3528」，而同一列因「今天不是未來 3 天最低」而不給建議囤貨。改為買進日也可往後挑（D+0..D+`CROSS_BUY_WINDOW`），賣出日須晚於買進日，取利潤最大組合；另存 buy_offset／buy_price／buy_date，文案改為「MM/DD買 → MM/DD賣」，買進日非今天時 tooltip 標明買價為預測值
