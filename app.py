@@ -18,7 +18,7 @@ from data.repository import (
     upsert_friend_price,
     get_profit_comparison, get_item_profit,
     get_friend_name_aliases, set_friend_name_alias, rename_friend_prices,
-    get_active_stockpile, mark_stockpile_sold_by_item,
+    get_active_stockpile,
     snapshot_date, delete_date_data, restore_snapshot,
     get_price_history, get_friend_max_price_history, get_price_extremes,
     get_items_by_region,
@@ -167,7 +167,7 @@ def _attach_forecast(rows, region, current_date, hist_cache, buy_window=CROSS_BU
 
 
 def _mark_stockpile(rows, region_top_profit, quota_row, region_max):
-    """每區只挑一個「建議囤貨」：合格物品中好友賣價天花板最高的那個。
+    """每區只挑一個「建議囤貨」：合格物品中「天花板 - 買價」最大的那個。
     in-place 設 stockpile_eligible（每筆，給「別買」讓位用）/ stockpile_pick（每區一個）/ stockpile_reason。
     合格定義：買價落在自己全期區間的低 STOCKPILE_POS_LIMIT%
     且（配額滿 或（現在最便宜 且 未來賣更高））。
@@ -194,7 +194,9 @@ def _mark_stockpile(rows, region_top_profit, quota_row, region_max):
         if r['stockpile_eligible']:
             eligible.append(r)
     if eligible:
-        pick = max(eligible, key=lambda r: r['sell_ceiling'] or 0)
+        # v6.0.1: 原本只比 sell_ceiling（賣得最貴），沒扣買價，會挑到「賣得貴但也買得貴」的物品。
+        #         囤貨賺的是價差，改比「囤到天花板能賺多少」。
+        pick = max(eligible, key=lambda r: (r['sell_ceiling'] or 0) - (r.get('my_price') or 0))
         pick['stockpile_pick'] = True
         if quota_full:
             pick['stockpile_reason'] = '配額已滿，先消耗'
@@ -229,6 +231,11 @@ def compare():
     wuling_visible = get_visible_item_names('wuling', date)
     valley_comparison = [r for r in valley_comparison if r['name_cn'] in valley_visible]
     wuling_comparison = [r for r in wuling_comparison if r['name_cn'] in wuling_visible]
+
+    # v6.1：當日價格表只列 F2 實際掃到的物品。沒掃到的整列不出現，
+    # 而不是留一排空格 —— 進度沒開到的物品本來就不該佔一列。
+    valley_comparison = [r for r in valley_comparison if r.get('my_price') is not None]
+    wuling_comparison = [r for r in wuling_comparison if r.get('my_price') is not None]
 
     # v4.1：好友名顯示套正規化表（舊資料的 raw 名映成正解）；保留 raw 供手動修正 key
     _aliases = get_friend_name_aliases()
@@ -292,6 +299,11 @@ def compare():
     # 囤貨（配額已在前面查過，跨日最佳要用）
     stockpile = get_active_stockpile(date)
 
+    # v6.1：好友名也套正規化表，跟當日價格表同一套顯示
+    for s in stockpile:
+        if s.get('friend_best_name'):
+            s['friend_best_name'] = _aliases.get(s['friend_best_name'], s['friend_best_name'])
+
     # v3.2：囤貨也加上「未來 7 天好友最高價」預測 + 信心度（最佳賣日，用該物品所屬 region 算 drift）
     for s in stockpile:
         iid = s['item_id']
@@ -334,13 +346,29 @@ def compare():
     _mark_stockpile(wuling_comparison, wuling_best['profit'] if wuling_best else 0,
                     wuling_quota, (region_quota_for_date['wuling'] or {}).get('max'))
 
+    # v6.1：囤貨改成掛在各自地區底下，不再是頁尾一張混在一起的卡片
+    valley_stockpile = [s for s in stockpile if s['region'] == 'valley_iv']
+    wuling_stockpile = [s for s in stockpile if s['region'] == 'wuling']
+
+    # v6.1：好友價掃漏偵測 —— F2 掃到幾項，F3 就該掃到幾項
+    def _friend_gap(rows):
+        missing = [r['name_cn'] for r in rows if r.get('friend_price') is None]
+        return {'market': len(rows),
+                'friend': len(rows) - len(missing),
+                'missing': missing}
+
+    friend_gap = {'valley_iv': _friend_gap(valley_comparison),
+                  'wuling':    _friend_gap(wuling_comparison)}
+
     return render_template('compare.html',
                            valley_comparison=valley_comparison,
                            wuling_comparison=wuling_comparison,
+                           valley_stockpile=valley_stockpile,
+                           wuling_stockpile=wuling_stockpile,
+                           friend_gap=friend_gap,
                            valley_best=valley_best,
                            wuling_best=wuling_best,
                            top_profitable=profitable[:5],
-                           stockpile=stockpile,
                            valley_quota=valley_quota,
                            wuling_quota=wuling_quota,
                            region_quota=region_quota_for_date,
@@ -474,16 +502,6 @@ def friend_manual_input():
                         game_date=game_date, source='manual')
     flash(f'已儲存好友價格：{market_price}', 'success')
     return redirect(url_for('compare', date=game_date))
-
-
-@app.route('/stockpile/sell', methods=['POST'])
-def stockpile_sell():
-    """標記囤貨為已賣出（依 item_id 一次清掉所有 sold=0 紀錄）"""
-    item_id = request.form.get('item_id', type=int)
-    if item_id:
-        mark_stockpile_sold_by_item(item_id)
-        flash('已標記為賣出', 'success')
-    return redirect(url_for('compare'))
 
 
 @app.route('/api/price', methods=['POST'])

@@ -98,6 +98,7 @@
         let prevPhase = 'idle';
         let lastCompleted = null;
         let lastError = '';
+        let lastGapSig = null;
         const toastEl = document.getElementById('scan-error-toast');
         const toastBody = document.getElementById('scan-error-toast-body');
         const toastObj = toastEl ? new bootstrap.Toast(toastEl) : null;
@@ -191,6 +192,36 @@
             // 限 phase !== 'idle'：完成後 region 仍保留在狀態裡，不加此限會反過來蓋掉使用者手動切的分頁
             if (region && phase !== 'idle' && window.setCompareRegion && region !== window._compareRegion) {
                 window.setCompareRegion(region);
+            }
+
+            // v6.1 F4：掃完囤貨就把該區切到「囤貨」檢視。旗標留給 reload 後的頁面消化，
+            // 因為掃完會 reload，直接切畫面會被沖掉。
+            if (phase === 'scanning_stockpile' && region) {
+                try { sessionStorage.setItem('compare_view_' + region, 'stock'); } catch (e) {}
+                if (window.setCompareView) window.setCompareView(region, 'stock');
+            }
+
+            // v6.1 掃漏提醒：同一份缺漏清單只跳一次，補掃後清單變了才會再跳
+            // F3 = 好友價格沒掃完；F4 = 囤貨沒有好友價格可以比
+            const gap = d.friend_gap;
+            const sgap = d.stock_gap;
+            let sig = null;
+            if (gap && gap.missing && gap.missing.length) {
+                sig = 'f:' + gap.region + ':' + gap.missing.join(',');
+            } else if (sgap && sgap.missing && sgap.missing.length) {
+                sig = 's:' + sgap.region + ':' + sgap.missing.join(',');
+            }
+            if (sig && sig !== lastGapSig) {
+                lastGapSig = sig;
+                if (gap && gap.missing && gap.missing.length) {
+                    if (window.showFriendGap) {
+                        window.showFriendGap(gap.region, gap.market, gap.friend, gap.missing);
+                    }
+                } else if (window.showStockGap) {
+                    window.showStockGap(sgap.region, sgap.total, sgap.missing);
+                }
+            } else if (!sig) {
+                lastGapSig = null;
             }
             const errorBanner = document.getElementById('scan-error-banner');
             const err = d.error || '';

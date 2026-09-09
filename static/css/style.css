@@ -20,6 +20,10 @@
     --ef-down:    #F2655C;   /* 虧損 */
 }
 
+/* 永遠留捲軸的位置：表格空的時候頁面短、沒捲軸，掃完變長就冒出捲軸，
+   整個版面會往左跳一次。留著位置就不會跳。 */
+html { scrollbar-gutter: stable; }
+
 body {
     background-color: var(--ef-bg);
     color: var(--ef-txt);
@@ -186,13 +190,44 @@ body {
     border-top: 3px solid var(--ef-yellow);
 }
 .region-title { margin-bottom: 1rem; display: flex; align-items: center; }
-.region-badge {
-    display: inline-block; padding: 4px 16px; border-radius: 0;
-    font-size: 1rem; font-weight: 900; color: #111;
-    clip-path: polygon(0 0, 100% 0, 92% 100%, 0% 100%);
+/* 標題列固定高度：右邊的「最佳／跨日最佳」最多兩行，還沒掃的地區則是空的。
+   不固定的話那一列會忽高忽低，左邊的下拉跟著上下跑，兩區看起來不齊。 */
+.region-head { min-height: 3.4rem; }
+/* 配額徽章：數字位數會變（「? / 960」vs「215 / 430」），不固定寬度的話
+   兩個地區的徽章寬度不一樣，右邊的東西也會跟著挪 */
+.region-title .badge {
+    min-width: 8.6rem; text-align: center; font-variant-numeric: tabular-nums;
 }
-.region-badge.valley { background: var(--ef-yellow); }
-.region-badge.wuling { background: var(--ef-green); }
+/* 配額頂到上限：今天的額度不用就沒了，轉紅催一下 */
+.region-title .badge.quota-full {
+    background-color: var(--ef-down) !important; color: #111 !important;
+}
+/* v6.1：當日價格／囤貨切換下拉，取代原本只寫地區名的 region-badge。
+   地區名已經在上方分頁列，這格改成放真正能操作的東西。 */
+.ef-vsel {
+    appearance: none; -webkit-appearance: none; font-family: inherit;
+    display: inline-block; padding: 4px 34px 4px 16px; border: none; border-radius: 0;
+    font-size: 1rem; font-weight: 900; color: #111; cursor: pointer;
+    clip-path: polygon(0 0, 100% 0, 96% 100%, 0% 100%);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%23111' stroke-width='2'/></svg>");
+    background-repeat: no-repeat; background-position: right 12px center;
+    transition: filter .12s, box-shadow .12s;
+}
+/* 兩個地區、兩種檢視都要一樣寬：不給 min-width 的話，
+   選到字比較短的「囤貨」時整顆會縮，兩區看起來就不對齊 */
+.ef-vsel { min-width: 7.6rem; }
+.ef-vsel.valley { background-color: var(--ef-yellow); }
+.ef-vsel.wuling { background-color: var(--ef-green); }
+.ef-vsel:hover { filter: brightness(1.15); box-shadow: inset 0 0 0 2px rgba(255,255,255,.28); }
+/* 展開後的選項清單走深色，不然會繼承上面的金／綠底 */
+.ef-vsel option { background: var(--ef-surf); color: var(--ef-txt); }
+
+/* v6.1：沒掃到東西時的指路文字（取代一整排空白列） */
+.ef-empty {
+    padding: 34px 22px; text-align: center; line-height: 2;
+    color: var(--ef-mut); background: var(--ef-surf);
+    border: 1px dashed var(--ef-line2);
+}
 /* 武陵整塊改用綠色外框，跟谷地的金色區隔 */
 .region-section[data-region="wuling"] { border-top-color: var(--ef-green); }
 .region-section[data-region="wuling"] .scanning-overlay,
@@ -334,3 +369,29 @@ kbd {
 .btn-success:hover { background: var(--ef-yellow-d); border-color: var(--ef-yellow-d); color: #111; }
 .btn-danger  { background: var(--ef-down); border-color: var(--ef-down); color: #111; }
 .btn-warning { background: var(--ef-yellow); border-color: var(--ef-yellow); color: #111; }
+
+/* ============================================================
+   v6.1 全站：能點的就要看得出能點
+   原則 — 能點的游標變手指，不能點的（徽章、配額、利潤數字）維持箭頭。
+   ============================================================ */
+button, .btn, select, .ef-rtab, .ef-arrow, [role="button"] { cursor: pointer; }
+.btn:disabled, button:disabled { cursor: not-allowed; }
+
+/* 分頁：移上去底色微亮、字轉白，下緣先浮一條灰線 */
+.ef-rtab:hover { color: var(--ef-txt); background: rgba(255,255,255,.05); border-bottom-color: var(--ef-line2); }
+.ef-rtab.on:hover { border-bottom-color: var(--ef-yellow); }
+#compare-region-tabs .ef-rtab[data-region="wuling"].on:hover { border-bottom-color: var(--ef-green); }
+
+/* 可直接點著改的格子：整格都能點，不是只有那顆鉛筆 */
+.editable-cell, .friend-name-cell[data-raw-friend]:not([data-raw-friend=""]) { cursor: pointer; }
+/* 用內縮外框而不是換底色：換底色會蓋掉整列的紅／綠利潤色 */
+.editable-cell:hover, .friend-name-cell[data-raw-friend]:not([data-raw-friend=""]):hover {
+    box-shadow: inset 0 0 0 1px var(--ef-yellow);
+}
+
+/* 遊戲日期等下拉：移上去邊框轉亮 */
+.form-select:hover { border-color: var(--ef-yellow); }
+
+/* 鍵盤 Tab 過來的人也要看得出焦點在哪 */
+:focus-visible { outline: 2px solid var(--ef-yellow); outline-offset: 2px; }
+.ef-vsel:focus-visible { outline-color: #fff; outline-offset: 1px; }

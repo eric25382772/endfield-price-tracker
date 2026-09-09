@@ -33,7 +33,8 @@ from data.items import VALLEY_IV_GOODS, WULING_GOODS
 from data.repository import (
     get_all_items, upsert_price, upsert_friend_price,
     delete_friend_prices_for_item, upsert_stockpile, upsert_quota,
-    get_friend_name_alias, set_friend_name_alias
+    get_friend_name_alias, set_friend_name_alias, get_profit_comparison,
+    get_active_stockpile
 )
 from data.items import REGION_QUOTA, get_region_quota
 from ocr.engine import recognize, recognize_crop
@@ -60,6 +61,10 @@ LOG_FILE = Path(__file__).parent / 'data' / 'scanner.log'
 FRIEND_OCR_DEBUG_LOG = Path(__file__).parent / 'data' / 'friend_ocr_debug.log'
 _shutdown_event = threading.Event()
 _completed_count = 0  # 每完成一張截圖處理 +1，網頁偵測此計數變化即 reload
+# v6.1 好友價掃漏提醒：F3 是一物一頁，佇列一空就跳窗會被連彈 N 次，
+# 因此要「佇列空 + 距離最後一次按 F3 滿 5 秒」兩個條件同時成立才算掃完。
+FRIEND_GAP_IDLE_SEC = 5
+_last_f3_time = 0.0
 
 
 _last_error = ''  # F2 失敗訊息；成功或其他階段清空
@@ -1047,8 +1052,9 @@ def parse_friend_list(ocr_results, img_width=2560):
     # 只讀取右側好友列表區域，排除左側物品圖的 OCR 雜訊
     x_min = img_width * 0.3  # 好友列表在畫面右側 70%
     # 價格欄在中間；右邊「對比本地區 / 對於持有」百分比欄會被誤讀為 4 位數
-    # （例：▲51.1% → 5110），所以價格只抓 x < 0.75*width 的區塊
-    price_x_max = img_width * 0.75
+    # （例：▲51.1% → 5110），所以價格只抓 x < 0.70*width 的區塊
+    # （價格欄 x≈0.64*width、百分比欄 x≈0.72*width）
+    price_x_max = img_width * 0.70
 
     for block in ocr_results:
         text = block['text'].strip()
@@ -1067,6 +1073,10 @@ def parse_friend_list(ocr_results, img_width=2560):
             continue
         # 價格: 4 位數字 (1000~6000)，只在價格欄 x 範圍內抓
         if block['center_x'] >= price_x_max:
+            continue
+        # 百分比欄漲幅破 1000% 時會讀成 4 位數（例：▲1079.1% → 1079），
+        # 價格是純整數，含 % 或小數點的一律不是價格
+        if '%' in text or '.' in text:
             continue
         match = re.search(r'(\d{4})', text)
         if match:
@@ -1210,12 +1220,42 @@ def process_friend_prices(filepath):
             set_scan_status('idle')
 
 
+def _report_friend_gap():
+    """F3 全部掃完後，比對「F2 掃到幾項 vs 好友價格掃到幾項」，缺的寫進狀態檔給網頁跳窗。
+
+    等到距離最後一次按 F3 滿 FRIEND_GAP_IDLE_SEC 才判定；期間又按了 F3 就順延，
+    否則一物一頁的掃法會在每掃完一項時各彈一次。
+    """
+    while True:
+        wait = _last_f3_time + FRIEND_GAP_IDLE_SEC - time.time()
+        if wait <= 0:
+            break
+        time.sleep(wait)
+    if f3_queue.unfinished_tasks > 0 or not last_f2_region:
+        return  # 又有新的在處理，交給那一輪收尾
+    try:
+        rows = [r for r in get_profit_comparison(last_f2_region) if r['my_price'] is not None]
+        missing = [r['name_cn'] for r in rows if r['friend_price'] is None]
+        if missing:
+            _patch_status_field('friend_gap', {
+                'region': last_f2_region,
+                'market': len(rows),
+                'friend': len(rows) - len(missing),
+                'missing': missing,
+            })
+    except Exception as e:
+        print(f"  [好友價缺漏檢查失敗] {e}")
+
+
 def scan_friend_prices():
     """F3: 立刻截圖，丟進佇列背景處理。"""
+    global _last_f3_time
     print(f"\n{'='*50}")
     print(f"[F3] 掃描好友的市場價格")
     print(f"{'='*50}")
 
+    _last_f3_time = time.time()
+    _patch_status_field('friend_gap', None)  # 新一輪開始，清掉上一輪的缺漏結果
     try:
         filepath = capture_foreground_window()
         print(f"  截圖已儲存: {filepath}")
@@ -1229,6 +1269,7 @@ def process_stockpile(filepath):
     """F4: 只辨識「目前持有」區並儲存囤貨（與 F2 市場掃描分離）。"""
     global _completed_count
     set_scan_status('scanning_stockpile', None, error='')
+    region = None
     try:
         print("  OCR 辨識中...")
         ocr_results = recognize(filepath)
@@ -1282,6 +1323,25 @@ def process_stockpile(filepath):
     finally:
         _completed_count += 1
         set_scan_status('idle')
+        # set_scan_status 會整份覆寫，所以缺漏一定要等它寫完才補上去
+        _report_stock_gap(region)
+
+
+def _report_stock_gap(region):
+    """F4 掃完後檢查囤貨有沒有好友價格可以比。沒有的話利潤欄是空的，要講一聲。"""
+    if not region:
+        return
+    try:
+        rows = [s for s in get_active_stockpile() if s['region'] == region]
+        missing = [s['name_cn'] for s in rows if s['friend_best_price'] is None]
+        if rows and missing:
+            _patch_status_field('stock_gap', {
+                'region': region,
+                'total': len(rows),
+                'missing': missing,
+            })
+    except Exception as e:
+        print(f"  [囤貨比價檢查失敗] {e}")
 
 
 def scan_stockpile():
@@ -1401,6 +1461,10 @@ def worker_f3():
         print(f"\n  [好友比對 處理中] {os.path.basename(filepath)}")
         process_friend_prices(filepath)
         f3_queue.task_done()
+        # 掃漏檢查要等 task_done 之後才發動：在 process_friend_prices 裡發動的話，
+        # 這張自己還掛在 unfinished_tasks 上，檢查會誤判成「還有別的在排隊」而放棄。
+        if f3_queue.unfinished_tasks == 0:
+            threading.Thread(target=_report_friend_gap, daemon=True).start()
 
 
 def worker_f4():

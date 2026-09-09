@@ -216,41 +216,31 @@ def upsert_stockpile(item_id, buy_price, region, game_date=None):
 
 
 def get_active_stockpile(game_date=None):
-    """取得所有未賣出的囤貨，搭配好友最高價計算利潤。
+    """取得 game_date 當天的囤貨，搭配好友最高價與出價好友名計算利潤。
 
-    同一 item_id 跨遊戲日重複插入時，UI 端壓成一列：
-    取最早 game_date_bought、最低 buy_price，id 取代表列（最早那筆）。
-
-    好友最高價只取 game_date 當天的：跨天沿用上次掃到的價格會讓沒掃的日子
-    看起來仍有利潤，實際上是幾天前的舊值。
+    v6.1：只查當天。囤貨是「今天買、今天賣」的當日操作，跨日合併會讓
+    昨天的買價混進今天的清單。好友最高價同樣只取當天的：跨天沿用上次
+    掃到的價格會讓沒掃的日子看起來仍有利潤，實際上是幾天前的舊值。
     """
     if game_date is None:
         game_date = get_game_date()
     conn = get_db()
     rows = conn.execute("""
-        SELECT g.item_id,
-               (SELECT s2.id FROM stockpile s2
-                WHERE s2.item_id = g.item_id AND s2.sold = 0
-                ORDER BY s2.game_date_bought ASC, s2.id ASC LIMIT 1) AS id,
+        SELECT s.id, s.item_id,
                i.name_cn, i.name_en, i.region,
-               g.buy_price,
-               g.game_date_bought,
-               (SELECT MAX(fp.market_price)
-                FROM friend_prices fp
-                WHERE fp.item_id = g.item_id
-                  AND fp.game_date = ?
-               ) as friend_best_price
-        FROM (
-            SELECT item_id,
-                   MIN(game_date_bought) AS game_date_bought,
-                   MIN(buy_price) AS buy_price
-            FROM stockpile
-            WHERE sold = 0
-            GROUP BY item_id
-        ) g
-        JOIN items i ON g.item_id = i.id
-        ORDER BY g.game_date_bought DESC
-    """, (game_date,)).fetchall()
+               s.buy_price,
+               s.game_date_bought,
+               fp.market_price AS friend_best_price,
+               fp.friend_name  AS friend_best_name
+        FROM stockpile s
+        JOIN items i ON s.item_id = i.id
+        LEFT JOIN friend_prices fp
+               ON fp.id = (SELECT f2.id FROM friend_prices f2
+                           WHERE f2.item_id = s.item_id AND f2.game_date = ?
+                           ORDER BY f2.market_price DESC LIMIT 1)
+        WHERE s.sold = 0 AND s.game_date_bought = ?
+        ORDER BY i.region, s.id
+    """, (game_date, game_date)).fetchall()
     conn.close()
     results = []
     for row in rows:
@@ -261,22 +251,6 @@ def get_active_stockpile(game_date=None):
             r['stockpile_profit'] = None
         results.append(r)
     return results
-
-
-def mark_stockpile_sold(stockpile_id):
-    """標記囤貨為已賣出。"""
-    conn = get_db()
-    conn.execute("UPDATE stockpile SET sold = 1 WHERE id = ?", (stockpile_id,))
-    conn.commit()
-    conn.close()
-
-
-def mark_stockpile_sold_by_item(item_id):
-    """標記某物品所有未賣出的囤貨為已賣出（合併顯示後一鍵清掉）。"""
-    conn = get_db()
-    conn.execute("UPDATE stockpile SET sold = 1 WHERE item_id = ? AND sold = 0", (item_id,))
-    conn.commit()
-    conn.close()
 
 
 def snapshot_date(game_date):

@@ -1,5 +1,19 @@
 # 版本更新紀錄
 
+## v6.1
+- **囤貨改成各地區底下的檢視，不再是頁尾一張跨區卡片**：原本 `stockpile` 是全域一張表掛在 compare 頁最底，兩區混在一起、且靠 `sold` 欄位跨日累積到使用者手動按「賣出」才消。改為每個 region-section 內以下拉切換「當日價格／囤貨」，`app.py` 依 region 拆成 `valley_stockpile` / `wuling_stockpile`。`get_active_stockpile()` 由「所有 `sold = 0`」改為「`game_date_bought = 指定日期`」，不再合併跨日最低買價；連帶 `/stockpile/sell` 路由與 `mark_stockpile_sold()` / `mark_stockpile_sold_by_item()` 移除。`sold` 欄位與舊資料保留不動（快照／還原仍會用到）。副作用已與使用者確認：當天忘記按 F4 的貨在系統裡等於不存在
+- **囤貨列補上出價好友名**：`get_active_stockpile()` 改用 `LEFT JOIN` 取當天最高價那筆的 `friend_name`，與當日價格表同樣套 `get_friend_name_aliases()` 正規化
+- **當日價格表只列 `my_price is not None` 的物品**：原本不管有沒有掃都硬列 12 列、價格欄一片 `-`。使用者明確反對「補空白列」——遊戲進度沒開到的物品不該佔一列。空表格改顯示指路文字（`.ef-empty`），內含「市場畫面要完整顯示在螢幕上」提示；頁首原本那條 `alert-info`「使用方式」隨之移除，說明只留在空狀態一處
+- **好友價掃漏提醒**：F3 掃完後比對「F2 掃到幾項 vs 好友價格幾項」，缺的經 `_patch_status_field('friend_gap', …)` 寫進 `scan_status.json`，網頁輪詢到就跳窗列出缺哪幾項。判定條件是「佇列清空 **且** 距最後一次按 F3 滿 `FRIEND_GAP_IDLE_SEC = 5` 秒」——F3 是一物一頁，只看佇列清空會在每掃完一項時各彈一次。**初版有時序 bug**：檢查執行緒在 `process_friend_prices` 的 `finally` 就發動，但 `f3_queue.task_done()` 要到 `worker_f3` 下一行才呼叫，而 OCR 早已超過 5 秒故等待迴圈立即結束，於是看到自己還掛在 `unfinished_tasks` 上而誤判「還有別的在排隊」直接 return，永遠不會報。改為在 `task_done()` 之後、佇列真的歸零時才發動
+- **囤貨無法比價提醒**：F4 掃完後檢查該區當天囤貨有哪幾項今天還沒有好友價格（利潤欄會是空的），寫入 `stock_gap`。同樣要等 `set_scan_status('idle')` 寫完才補欄位——`set_scan_status()` 是整份覆寫
+- **兩種提醒共用同一個 modal**（`#gapModal`），標題／內文由呼叫端給，靜音鍵各自獨立（`gapmute_<kind>_<region>_<date>`）；物品名走 `textContent` 不進 `innerHTML`
+- **F4 掃完自動切到「囤貨」檢視**：掃完會 reload，直接改畫面會被沖掉，故在 `phase === 'scanning_stockpile'` 時寫 `sessionStorage` 旗標，compare 頁載入時讀到就套用並立刻移除（一次性）。下拉本身不記憶選擇，每次進來一律停在「當日價格」
+- **全站可點擊提示**：`cursor: pointer`、分頁與按鈕的 hover、`:focus-visible` 外框。可編輯格子用內縮 `box-shadow` 而非換底色——換底色會蓋掉整列的 `table-success` / `table-danger`
+- **每日配額頂到上限時徽章轉紅**（`.quota-full`），判斷與 `_buy_window` / `_mark_stockpile` 的「配額已滿」同一條（`remaining >= max`）；配額徽章只在「當日價格」檢視顯示，囤貨看的是已買到手的，與剩餘額度無關
+- **版面固定**：`.region-head` 給 `min-height`（右側「最佳／跨日最佳」最多兩行、未掃的地區則是空的，不固定會讓左邊下拉上下跑）、`.ef-vsel` 與配額徽章給 `min-width`（選到字較短的「囤貨」或配額位數變化都會改寬度）、`html { scrollbar-gutter: stable }`（表格空↔滿之間捲軸出現與否會讓整頁橫向跳一次）
+- **修正建議囤貨挑到「賣得貴但買也貴」的物品**：`_mark_stockpile()` 的 pick 只比 `sell_ceiling` 最高，沒扣買價。改為比 `sell_ceiling - my_price`。實例：武陵 2026-09-03 原挑選劍鑄爐（買 1626／天花板 5287＝+3661），改後挑天師龍泡泡（買 1272／天花板 5034＝+3762）
+- **修正好友價格被右側漲幅欄蓋掉**：`parse_friend_list` 價格欄過濾 `center_x < 0.75 × width` 擋不住漲幅欄（2560 寬下價格 x≈1636、漲幅 x≈1853＝0.72）。平常漲幅 3 位數不合 `\d{4}`，9/06 界石鎖貨組跌到 430、漲幅衝到 `▲1079.1%` 首次撞上；配對比 y 距離時漲幅還贏（dy=1 vs 2），錯值再觸發「價格單調遞減」過濾把後面兩筆整個丟掉，5 筆只存到 2 筆。x 界線收到 0.70 並新增第三道「文字含 `%` 或小數點就不是價格」；已用 `friend_ocr_debug.log` 的真實區塊回放驗證
+
 ## v6.0
 - **武陵新增 1 貨物**（2026-09-02 遊戲改版）：界石鎖貨組（item_24），武陵物品增至 12 項；市場佈局由 7+4 改為 **7+5**（第 2 行 5 格，`WULING_CARD_POSITIONS.row2` 補上 x=1359）。`image_matcher` 的 id 範圍 13-23 → 13-24、參考圖載入 `range(1, 25)`。三張圖依慣例放三處：`data/item_images/`（辨識用，維持 row1 y 420-660 同框）、`static/images/items/`（compare 縮圖，美術落點偏低故改裁 y 470-710）、`data/item_images/friend/`（好友掃描用）。item id 以顯式 `INSERT ... VALUES (24, ...)` 寫入，避開 AUTOINCREMENT seq 被 `INSERT OR IGNORE` 推高的老問題
 - **武陵每日配額 +200／上限 400 → +215／上限 430**：`REGION_QUOTA_HISTORY` 加 `{'from': '2026-09-02', 'daily': 215, 'max': 430}`。新貨物同樣帶 `from: 2026-09-02`，翻 9/01 以前的資料仍是 11 項與舊配額
