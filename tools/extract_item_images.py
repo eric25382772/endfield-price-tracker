@@ -31,14 +31,14 @@ WULING_SCREEN_ORDER_ROW2 = [16, 14]
 
 # 四號谷地：遊戲畫面從左到右、上到下
 # item_id 1-12, 遊戲順序 = 資料庫順序
-# Row 1 (7 items): 錨點1, 懸空2, 巫術3, 天使4, 谷地5, 團結6, 源石7
-# Row 2 (5 items): 塞什8, 星體10, 警戒9, 硬頭12, 碎料11
+# 第 1 行（7 格）：錨點1, 懸空2, 巫術3, 天使4, 谷地5, 團結6, 源石7
+# 第 2 行（5 格）：塞什8, 星體10, 警戒9, 硬頭12, 碎料11
 VALLEY_SCREEN_ORDER_ROW1 = [1, 2, 3, 4, 5, 6, 7]
 VALLEY_SCREEN_ORDER_ROW2 = [8, 10, 9, 12, 11]
 
 
 def save_debug_grid(img, cards, labels, output_name):
-    """Draw rectangles on image for debugging."""
+    """在圖上畫出框線，方便除錯時肉眼確認裁切位置。"""
     debug = img.copy()
     for i, (x1, y1, x2, y2) in enumerate(cards):
         cv2.rectangle(debug, (x1, y1), (x2, y2), (0, 255, 0), 3)
@@ -50,7 +50,7 @@ def save_debug_grid(img, cards, labels, output_name):
 
 
 def extract_wuling(screenshot_path):
-    """Extract Wuling item images (v4.0 起為 7+2 兩行佈局)."""
+    """裁出武陵的物品圖（v4.0 起為 7+2 兩行佈局）。"""
     img = cv2.imread(screenshot_path)
     if img is None:
         print(f"Cannot read {screenshot_path}")
@@ -100,7 +100,7 @@ def extract_wuling(screenshot_path):
 
 
 def extract_valley(screenshot_path):
-    """Extract 12 Valley IV item images (7+5 layout)."""
+    """裁出四號谷地的 12 張物品圖（7+5 佈局）。"""
     img = cv2.imread(screenshot_path)
     if img is None:
         print(f"Cannot read {screenshot_path}")
@@ -109,9 +109,9 @@ def extract_valley(screenshot_path):
     print(f"Valley: {w}x{h}")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # Row 1: 7 items
+    # 第 1 行 7 格
     row1_x_starts = [143, 447, 751, 1055, 1359, 1663, 1967]
-    # Row 2: 5 items
+    # 第 2 行 5 格
     row2_x_starts = [143, 447, 751, 1055, 1359]
     card_width = 270
     row1_y = (420, 670)
@@ -120,7 +120,7 @@ def extract_valley(screenshot_path):
     cards = []
     all_ids = []
 
-    # Row 1
+    # 第 1 行
     for i, item_id in enumerate(VALLEY_SCREEN_ORDER_ROW1):
         x1 = row1_x_starts[i]
         x2 = x1 + card_width
@@ -134,7 +134,7 @@ def extract_valley(screenshot_path):
         cv2.imwrite(os.path.join(OUTPUT_DIR, filename), crop)
         print(f"  R1 pos {i+1} -> item_id {item_id}: {filename}")
 
-    # Row 2
+    # 第 2 行
     for i, item_id in enumerate(VALLEY_SCREEN_ORDER_ROW2):
         x1 = row2_x_starts[i]
         x2 = x1 + card_width
@@ -152,12 +152,16 @@ def extract_valley(screenshot_path):
 
 
 def copy_to_static():
-    """Copy item images to static directory."""
+    """把裁好的物品圖複製到 static/（網頁顯示用）。
+
+    注意：static/images/items/ 現在放的是去背版的圖，不是這裡裁出來的市場卡截圖。
+    跑這個函式會把去背版蓋掉，要用前先想清楚。
+    """
     os.makedirs(STATIC_DIR, exist_ok=True)
-    # Clean old files
+    # 先清掉舊檔
     for f in os.listdir(STATIC_DIR):
         os.remove(os.path.join(STATIC_DIR, f))
-    # Copy new files
+    # 再複製新的進去
     count = 0
     for f in os.listdir(OUTPUT_DIR):
         if f.startswith('item_') and f.endswith('.png'):

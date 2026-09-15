@@ -65,8 +65,10 @@ def update_quota():
     region = request.form.get('region')
     remaining = request.form.get('remaining', type=int)
     game_date = request.form.get('game_date')
-    quota_info = get_region_quota(region, game_date) or {}
-    max_quota = quota_info.get('max', 0)
+    # 上限沿用 F2 掃到的那筆，沒掃過才退回寫死的滿配表
+    existing = get_quota(region, game_date) if region else None
+    max_quota = ((existing or {}).get('max_quota')
+                 or (get_region_quota(region, game_date) or {}).get('max', 0))
 
     if region and remaining is not None:
         upsert_quota(region, remaining, max_quota, game_date=game_date)
@@ -249,12 +251,23 @@ def compare():
     valley_quota = get_quota('valley_iv', date)
     wuling_quota = get_quota('wuling', date)
 
+    # 上限以 F2 掃到的為準（新手玩家還沒解滿，上限比寫死的滿配表低），沒掃到才退回表
+    def _region_cfg(region, quota_row):
+        cfg = dict(get_region_quota(region, date) or {})
+        if quota_row and quota_row.get('max_quota'):
+            cfg['max'] = quota_row['max_quota']
+        return cfg
+
+    region_quota_for_date = {
+        'valley_iv': _region_cfg('valley_iv', valley_quota),
+        'wuling':    _region_cfg('wuling',    wuling_quota),
+    }
+
     def _buy_window(region, quota_row):
         """配額是每天累加到上限，沒買滿不會歸零，所以「明天再買」通常不虧。
         但頂到上限時當天的額度就真的蒸發了，這種情況只准今天買。
         （與 _mark_stockpile 的「配額已滿，先消耗」同一個判斷。）"""
-        cfg = get_region_quota(region, date) or {}
-        region_max = cfg.get('max')
+        region_max = region_quota_for_date[region].get('max')
         if quota_row and region_max and quota_row.get('remaining', 0) >= region_max:
             return 0
         return CROSS_BUY_WINDOW
@@ -335,16 +348,40 @@ def compare():
     backup_path = Path(__file__).parent / 'data' / f'reset_backup_{date}.json'
     has_backup = backup_path.exists()
 
-    region_quota_for_date = {
-        'valley_iv': get_region_quota('valley_iv', date),
-        'wuling':    get_region_quota('wuling',    date),
-    }
-
     # v4.0.1：每區只挑一個建議囤貨（買入價最低的合格物品）
     _mark_stockpile(valley_comparison, valley_best['profit'] if valley_best else 0,
                     valley_quota, (region_quota_for_date['valley_iv'] or {}).get('max'))
     _mark_stockpile(wuling_comparison, wuling_best['profit'] if wuling_best else 0,
                     wuling_quota, (region_quota_for_date['wuling'] or {}).get('max'))
+
+    # 綠底＝「建議」欄真的喊必買或建議囤貨的那列，不再自己另拿 3000 當一條線。
+    # show_wait 原本寫在 compare.html 的巨集裡，搬來這裡讓底色與徽章共用同一份判斷。
+    def _mark_row_flags(rows, region, best_id, top_profit, quota_row):
+        region_max = region_quota_for_date[region].get('max')
+        quota_not_full = (quota_row is None or not region_max
+                          or quota_row['remaining'] < region_max)
+        for r in rows:
+            r['show_wait'] = bool(
+                r['profit'] is not None and r['profit'] > 0
+                and top_profit and top_profit > 0
+                and r['pred_profit'] is not None
+                and r['pred_profit'] > top_profit * WAIT_GAIN_RATIO
+                and r['pred_confidence'] >= WAIT_MIN_CONFIDENCE
+                and quota_not_full
+                and not r.get('stockpile_eligible')
+            )
+            r['row_green'] = bool(
+                r.get('stockpile_pick')
+                or (not r['show_wait'] and r['item_id'] == best_id
+                    and r['profit'] is not None and r['profit'] >= PROFIT_THRESHOLD)
+            )
+
+    _mark_row_flags(valley_comparison, 'valley_iv',
+                    valley_best['item_id'] if valley_best else None,
+                    valley_best['profit'] if valley_best else 0, valley_quota)
+    _mark_row_flags(wuling_comparison, 'wuling',
+                    wuling_best['item_id'] if wuling_best else None,
+                    wuling_best['profit'] if wuling_best else 0, wuling_quota)
 
     # v6.1：囤貨改成掛在各自地區底下，不再是頁尾一張混在一起的卡片
     valley_stockpile = [s for s in stockpile if s['region'] == 'valley_iv']
@@ -374,8 +411,6 @@ def compare():
                            region_quota=region_quota_for_date,
                            profit_threshold=PROFIT_THRESHOLD,
                            stockpile_pos_limit=STOCKPILE_POS_LIMIT,
-                           wait_gain_ratio=WAIT_GAIN_RATIO,
-                           wait_min_confidence=WAIT_MIN_CONFIDENCE,
                            buyable_ratio=BUYABLE_RATIO,
                            valley_best_id=(valley_best['item_id'] if valley_best else None),
                            wuling_best_id=(wuling_best['item_id'] if wuling_best else None),

@@ -4,7 +4,7 @@
 
 #define MyAppName "終末地彈性物資價格追蹤器"
 #define MyAppShortName "終末地追蹤器"
-#define MyAppVersion "6.1"
+#define MyAppVersion "6.1.1"
 #define MyAppPublisher "eric25382772"
 #define MyAppURL "https://github.com/eric25382772/endfield-price-tracker"
 #define MyAppExeName "start_scanner.bat"
@@ -31,6 +31,9 @@ OutputBaseFilename=EndfieldTracker_Setup_v{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+; 安裝精靈本身與「新增或移除程式」清單的圖示
+SetupIconFile=..\static\images\app.ico
+UninstallDisplayIcon={app}\static\images\app.ico
 PrivilegesRequired=admin
 ; VC++ 執行庫裝完常回傳 3010（建議重開機）；但本程式不用重開就能用（torch 立即可載入），
 ; 忽略 [Run] 步驟的重開要求，避免結尾跳出多餘的「需要重新啟動電腦」
@@ -60,9 +63,10 @@ Source: "..\ocr\*.py"; DestDir: "{app}\ocr"; Flags: ignoreversion
 Source: "..\tools\*"; DestDir: "{app}\tools"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#MyAppShortName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+; 捷徑指向 .bat，沒指定 IconFilename 的話會拿到 Windows 預設的齒輪圖示
+Name: "{group}\{#MyAppShortName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; IconFilename: "{app}\static\images\app.ico"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppShortName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppShortName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon; IconFilename: "{app}\static\images\app.ico"
 
 [Run]
 ; 1. 若沒 Python，安裝 Python（idp 已下載到 {tmp}）

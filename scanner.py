@@ -36,13 +36,13 @@ from data.repository import (
     get_friend_name_alias, set_friend_name_alias, get_profit_comparison,
     get_active_stockpile
 )
-from data.items import REGION_QUOTA, get_region_quota
+from data.items import REGION_QUOTA
 from ocr.engine import recognize, recognize_crop
 from ocr.parser import parse_ocr_results
 from ocr.image_matcher import identify_items_by_image, get_card_positions, identify_friend_item
 
 
-# State
+# 全域狀態
 flask_process = None
 f2_queue = Queue()
 f3_queue = Queue()
@@ -444,7 +444,7 @@ def get_foreground_window_rect():
     pt = ctypes.wintypes.POINT(0, 0)
     user32.ClientToScreen(hwnd, ctypes.byref(pt))
 
-    # Get window title for logging
+    # 抓視窗標題，純粹寫進 log 方便事後查
     length = user32.GetWindowTextLengthW(hwnd)
     buf = ctypes.create_unicode_buffer(length + 1)
     user32.GetWindowTextW(hwnd, buf, length + 1)
@@ -460,7 +460,7 @@ def get_foreground_window_rect():
 
 
 def capture_foreground_window():
-    """Capture the foreground window screenshot, return temp file path."""
+    """截下目前最上層的視窗，回傳暫存檔路徑。"""
     win = get_foreground_window_rect()
     print(f"  截取視窗: {win['title']} ({win['width']}x{win['height']})")
 
@@ -485,7 +485,7 @@ def capture_foreground_window():
 
 
 def detect_region(parsed_results):
-    """Auto-detect region based on matched item names."""
+    """看辨識到的物品名，自動判斷這張圖是哪個地區。"""
     valley_names = {item['name_cn'] for item in VALLEY_IV_GOODS}
     wuling_names = {item['name_cn'] for item in WULING_GOODS}
 
@@ -575,26 +575,20 @@ def _normalize_digits(text):
                 .replace('B', '8'))
 
 
-def parse_remaining_quota(ocr_results, region, market_y, game_date=None):
+def parse_remaining_quota(ocr_results, market_y):
     """
     從 OCR 結果找出剩餘配額數字。
     遊戲市場畫面頂端會顯示類似「65/130」或「0/250」的配額數字。
     只看市場標題上方區域（market_y 之上），避免被價格數字干擾。
-    max_quota 依遊戲日期決定（武陵 4/17 改版前為 130，之後為 250）。
+    上限直接採用畫面上讀到的值 —— 新手玩家還沒解滿，上限跟寫死的滿配表對不上。
     """
-    quota_cfg = get_region_quota(region, game_date) if region else None
-    if not quota_cfg:
-        return None
-    max_quota = quota_cfg['max']
-    daily = quota_cfg['daily']
-
     search_area = [b for b in ocr_results if market_y <= 0 or b['center_y'] < market_y]
     pattern_slash = re.compile(r'(\d{1,4})\s*[/／]\s*(\d{2,4})')
 
     def _match(text):
         for m in pattern_slash.finditer(text):
             remaining, total = int(m.group(1)), int(m.group(2))
-            if total == max_quota and 0 <= remaining <= max_quota:
+            if 20 <= total <= 9999 and 0 <= remaining <= total:
                 return remaining, total
         return None
 
@@ -627,7 +621,7 @@ def parse_remaining_quota(ocr_results, region, market_y, game_date=None):
                 return {'remaining': hit[0], 'max': hit[1]}
 
     # 全部失敗：dump 搜尋區塊讓使用者回報
-    print(f"  剩餘配額：未辨識到 X/{max_quota} 格式，略過")
+    print(f"  剩餘配額：未辨識到「剩餘 X / 上限」格式，略過")
     print(f"  [DEBUG] search_area 區塊（前 15 個）：")
     for b in search_area[:15]:
         print(f"    y={b['center_y']:.0f} x={b['center_x']:.0f}: {b['text']!r}")
@@ -696,7 +690,7 @@ def scan_with_image_match(filepath):
             print(f"    [囤貨] {h['item_name']} = {h['price']}")
 
     # 解析剩餘配額（市場文字上方）
-    quota = parse_remaining_quota(ocr_results, region, market_y, game_date=get_game_date())
+    quota = parse_remaining_quota(ocr_results, market_y)
 
     if market_y > 0:
         # 重新解析，只用市場區域內的 OCR 結果
@@ -897,7 +891,7 @@ def _wait_f2_decision_thread(filepath):
                 return
             time.sleep(0.3)
 
-        # Timeout
+        # 逾時
         print(f"\n  [換區逾時取消] 60 秒未決定，自動取消")
         _discard_f2_shot(filepath)
         clear_pending_f2()

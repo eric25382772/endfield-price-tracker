@@ -1,5 +1,15 @@
 # 版本更新紀錄
 
+## v6.1.1
+- **每日配額上限改成信任 OCR，不再拿寫死的表對答案**：`parse_remaining_quota()` 原本要求辨識到的上限必須 `== REGION_QUOTA_HISTORY` 該日的 `max`，對不上就整包丟掉。新手玩家還沒解滿配（例如 65/130），螢幕明明有數字卻只顯示 `? / 430`。改為直接採用畫面讀到的值，只做合理性檢查（`20 <= total <= 9999` 且 `0 <= remaining <= total`）。`region` / `game_date` 參數隨之孤立，一併移除；`daily` 欄位全專案沒有任何地方在用（只有一行死賦值），也刪掉。網頁側 `app.py` 新增 `_region_cfg()`，上限以 `quotas` 表當天那筆為準，沒掃過才退回寫死的表——`_buy_window()`、`_mark_stockpile()`、徽章轉紅判斷全部跟著走正確上限。`/quota` 手動修改路由也改成沿用已掃到的上限，不再蓋回滿配值
+- **沒掃到就不顯示配額徽章**：上限因人而異，猜一個顯示反而誤導。`compare.html` 兩顆徽章包上 `{% if X_quota %}`，數字直接印 `quota.max_quota`
+- **綠底改成與「建議」欄同一份判斷**：原本整列 `table-success` 看 `profit >= PROFIT_THRESHOLD`（絕對 3000），徽章看「同區最高 × `BUYABLE_RATIO`」（相對 0.7），兩套標準併存，會出現「整列綠底、建議欄卻寫低利潤」。改為綠底＝該列真的掛著「必買」或「建議囤貨」。`show_wait` 從 compare.html 的巨集搬進 `app.py` 的 `_mark_row_flags()`，底色與徽章共用同一份計算；`suggestion_badge()` 的 `region_quota` / `region_max` 參數與 `wait_gain_ratio` / `wait_min_confidence` 兩個 render 參數隨之孤立，一併移除
+- **修正手動改價後徽章與底色跳回舊規則**：`inline_edit.js` 的 `renderBadge()` 自帶一套規則（「可買」寫死 `>= 1500`，與伺服器的相對 0.7 不同），且整欄 `innerHTML` 覆寫會把伺服器算出的「建議囤貨」徽章清掉。改為從同表 `.profit-cell` 重算同區最高利潤、規則對齊 `suggestion_badge()`，並在覆寫前把 `[data-stockpile-pick]` 那顆收起來再貼回；`updateRowClass()` 改看徽章內容而非利潤數字
+- **當日價格／囤貨的下拉改成兩顆並排按鈕**：選項只有兩個，不該要點開才看得到。`.ef-vsel` 換成 `.ef-vseg` / `.ef-vbtn`，切換由 `change` 改為 `click`，`apply()` 改切 `.on` class；`setCompareView()`（F4 掃完自動跳囤貨）走同一條路徑
+- **貨物圖片換成去背版**：`static/images/items/item_1~24.png` 全數換成 254×254 RGBA 透明去背圖（原為 270×250 帶市場卡背景的截圖）。**辨識用的 `data/item_images/` 未動**——那裡的裁切區域必須與 live 掃描同框才比對得到。`tools/extract_item_images.py` 的 `copy_to_static()` 會把去背版蓋回市場卡截圖，已在 docstring 加警告
+- **新增網頁 favicon 與程式 icon**：`static/favicon.ico`（16/32/48/64）、`static/images/app.ico`（16~256 共七種）。iss 補上 `SetupIconFile`、`UninstallDisplayIcon` 與兩個捷徑的 `IconFilename`。素材 `icon/程式用icon.png` 的透明是假的（棋盤格是實際像素、alpha 全 255，是把透明圖截圖存下來的），直接用會是一塊灰白格子。利用棋盤格「201/255 交替、週期 29px」的規律，把每個像素與 29px 外同位置取平均把格子抹平（不透明圖形兩邊相同，取平均不受影響），再從四邊灌水清掉均勻背景，最後磨掉邊緣鋸齒。成品另存 `icon/程式用icon_去背版.png`
+- **程式碼註解全面改為繁體中文**：11 個檔共 64 條英文註解與 docstring 換掉，逐行 diff 確認未動到任何程式邏輯
+
 ## v6.1
 - **囤貨改成各地區底下的檢視，不再是頁尾一張跨區卡片**：原本 `stockpile` 是全域一張表掛在 compare 頁最底，兩區混在一起、且靠 `sold` 欄位跨日累積到使用者手動按「賣出」才消。改為每個 region-section 內以下拉切換「當日價格／囤貨」，`app.py` 依 region 拆成 `valley_stockpile` / `wuling_stockpile`。`get_active_stockpile()` 由「所有 `sold = 0`」改為「`game_date_bought = 指定日期`」，不再合併跨日最低買價；連帶 `/stockpile/sell` 路由與 `mark_stockpile_sold()` / `mark_stockpile_sold_by_item()` 移除。`sold` 欄位與舊資料保留不動（快照／還原仍會用到）。副作用已與使用者確認：當天忘記按 F4 的貨在系統裡等於不存在
 - **囤貨列補上出價好友名**：`get_active_stockpile()` 改用 `LEFT JOIN` 取當天最高價那筆的 `friend_name`，與當日價格表同樣套 `get_friend_name_aliases()` 正規化

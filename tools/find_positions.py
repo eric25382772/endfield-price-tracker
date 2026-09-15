@@ -1,4 +1,4 @@
-"""Find item card positions in market screenshots.
+"""從市場截圖裡找出每張物品卡片的座標。
 
 用法：python tools/find_positions.py <武陵截圖> <谷地截圖>
 截圖從 uploads/ 挑（只保留最近 7 天，見 config.UPLOAD_RETENTION_DAYS）。
@@ -13,22 +13,19 @@ def analyze(path, label):
     h, w = img.shape[:2]
     print(f"\n=== {label} ({w}x{h}) ===")
 
-    # Convert to grayscale
+    # 轉成灰階
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # Save horizontal slices to help identify item positions
-    # Items have white/light card backgrounds
-    # Look for regions where there are bright rectangular areas
-
-    # Scan rows to find where item cards are (bright horizontal bands)
+    # 物品卡片的底色是白／淺色，所以整列平均亮度高的地方就是卡片所在。
+    # 先一列一列掃過去，找出這些「亮帶」。
     row_brightness = np.mean(gray, axis=1)
 
-    # Find bright bands (cards area)
+    # 挑出亮帶（也就是卡片區）
     bright_threshold = 200
     bright_rows = np.where(row_brightness > bright_threshold)[0]
 
     if len(bright_rows) > 0:
-        # Find contiguous bright regions
+        # 把連在一起的亮列併成同一段
         diffs = np.diff(bright_rows)
         breaks = np.where(diffs > 10)[0]
 
@@ -36,7 +33,7 @@ def analyze(path, label):
         start = bright_rows[0]
         for b in breaks:
             end = bright_rows[b]
-            if end - start > 50:  # At least 50px tall
+            if end - start > 50:  # 至少要 50 像素高才算
                 regions.append((start, end))
             start = bright_rows[b + 1]
         end = bright_rows[-1]
@@ -47,12 +44,12 @@ def analyze(path, label):
         for i, (y1, y2) in enumerate(regions):
             print(f"  Band {i}: y={y1}-{y2} (height={y2-y1})")
 
-    # Now scan columns within each band to find individual cards
+    # 再在每條亮帶裡一欄一欄掃，切出單張卡片
     for band_idx, (y1, y2) in enumerate(regions):
         band = gray[y1:y2, :]
         col_brightness = np.mean(band, axis=0)
 
-        # Find card boundaries (bright columns)
+        # 找卡片的左右邊界（亮的欄）
         bright_cols = np.where(col_brightness > bright_threshold)[0]
         if len(bright_cols) == 0:
             continue

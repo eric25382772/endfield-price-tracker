@@ -29,15 +29,15 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'bmp'}
 # 留幾天是因為查辨識錯誤要靠原始截圖，不要調太短。
 UPLOAD_RETENTION_DAYS = 7
 
-# Game
-GAME_RESET_HOUR = 4  # Daily reset at 4 AM
+# 遊戲
+GAME_RESET_HOUR = 4  # 遊戲每天凌晨 4 點換日
 
-# OCR
+# 文字辨識
 OCR_LANG = 'ch'
 OCR_CONFIDENCE_THRESHOLD = 0.6
-FUZZY_MATCH_THRESHOLD = 70  # thefuzz uses 0-100 scale
+FUZZY_MATCH_THRESHOLD = 70  # 名稱相似度門檻，thefuzz 用 0~100 分
 
-# Trading thresholds
+# 買賣判斷的各種門檻
 PROFIT_THRESHOLD = 3000      # 利潤 < 3000 建議不買（配額有限）
 # v5.1.5 囤貨合格線：今日買價落在該物品「史上最低~最高」區間的低 N%（0 = 史上最便宜）
 STOCKPILE_POS_LIMIT = 15
@@ -62,7 +62,7 @@ BUYABLE_RATIO = 0.7
 # v4.0.1 資料不足警告：預測信心度低於此值（樣本太少）顯示「僅供參考」
 DATA_THIN_CONFIDENCE = 0.4
 
-# Regions
+# 地區
 REGIONS = {
     'valley_iv': '四號谷地',
     'wuling': '武陵',
@@ -70,7 +70,7 @@ REGIONS = {
 
 
 def get_game_date(dt=None):
-    """Get the current game date, accounting for 4 AM daily reset."""
+    """取得目前的遊戲日期。凌晨 4 點前都還算前一天。"""
     if dt is None:
         dt = datetime.now()
     if dt.hour < GAME_RESET_HOUR:

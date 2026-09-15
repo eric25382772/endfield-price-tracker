@@ -1,7 +1,7 @@
 (function () {
     'use strict';
 
-    // Close any active inline editor
+    // 關掉目前開著的編輯框
     function closeActiveEditor() {
         var form = document.querySelector('.inline-edit-form');
         if (!form) return;
@@ -11,7 +11,7 @@
         cell.querySelector('.edit-btn').style.display = '';
     }
 
-    // Render profit text
+    // 畫出利潤欄的文字（正的綠、負的紅）
     function renderProfit(profit) {
         if (profit === null || profit === undefined) {
             return '<span class="text-muted">-</span>';
@@ -21,46 +21,58 @@
         return '<span class="' + cls + '">' + prefix + profit + '</span>';
     }
 
-    // Render badge（建議囤貨由伺服器判斷，每區只推一個，重新整理後才會更新）
-    function renderBadge(profit) {
-        var html = '';
-        if (profit === null || profit === undefined) {
-            html = '<span class="text-muted">-</span>';
-        } else if (profit >= window.PROFIT_THRESHOLD) {
-            html = '<span class="badge bg-success">必買</span>';
-        } else if (profit >= 1500) {
-            html = '<span class="badge bg-info">可買</span>';
-        } else if (profit > 0) {
-            html = '<span class="badge bg-warning text-dark">低利潤</span>';
-        } else if (profit === 0) {
-            html = '<span class="badge bg-secondary">持平</span>';
-        } else {
-            html = '<span class="badge bg-danger">虧損</span>';
-        }
-        return html;
+    // 同區當日最高利潤：伺服器的必買／可買都拿它當基準，這裡從同一張表的利潤欄重算
+    function regionTopProfit(row) {
+        var top = 0;
+        row.closest('tbody').querySelectorAll('.profit-cell').forEach(function (c) {
+            var v = parseInt(c.textContent.replace(/[^\-\d]/g, ''), 10);
+            if (!isNaN(v) && v > top) top = v;
+        });
+        return top;
     }
 
-    // Update row class based on profit
+    // 畫出「建議」欄的徽章（規則對齊 compare.html 的 suggestion_badge；
+    // 建議囤貨與別買由伺服器判斷，重新整理後才會更新）
+    function renderBadge(profit, row) {
+        if (profit === null || profit === undefined) {
+            return '<span class="text-muted">-</span>';
+        }
+        var top = regionTopProfit(row);
+        if (profit >= window.PROFIT_THRESHOLD && profit >= top) {
+            return '<span class="badge bg-success">必買</span>';
+        }
+        if (top > 0 && profit >= top * window.BUYABLE_RATIO) {
+            return '<span class="badge bg-info">可買</span>';
+        }
+        if (profit > 0) {
+            return '<span class="badge bg-warning text-dark">低利潤</span>';
+        }
+        if (profit === 0) {
+            return '<span class="badge bg-secondary">持平</span>';
+        }
+        return '<span class="badge bg-danger">虧損</span>';
+    }
+
+    // 綠底＝必買／建議囤貨，跟徽章同一份判斷（見 app.py _mark_row_flags）
     function updateRowClass(row, profit) {
         row.classList.remove('table-success', 'table-danger');
-        if (profit !== null && profit !== undefined) {
-            if (profit >= window.PROFIT_THRESHOLD) {
-                row.classList.add('table-success');
-            } else if (profit < 0) {
-                row.classList.add('table-danger');
-            }
+        var badgeCell = row.querySelector('.badge-cell');
+        if (badgeCell.querySelector('.badge.bg-success, [data-stockpile-pick]')) {
+            row.classList.add('table-success');
+        } else if (profit !== null && profit !== undefined && profit < 0) {
+            row.classList.add('table-danger');
         }
     }
 
-    // Flash animation on cell
+    // 存檔成功後讓格子閃一下
     function flashCell(cell) {
         cell.classList.remove('cell-flash');
-        // Force reflow
+        // 強迫瀏覽器重算版面，動畫才會重播
         void cell.offsetWidth;
         cell.classList.add('cell-flash');
     }
 
-    // Open inline editor
+    // 打開格子裡的編輯框
     function openEditor(cell) {
         closeActiveEditor();
 
@@ -85,7 +97,7 @@
         input.select();
     }
 
-    // Submit edit
+    // 送出修改
     function submitEdit(cell) {
         var input = cell.querySelector('.inline-edit-form input');
         if (input.value.trim() === '') {
@@ -130,15 +142,15 @@
                 return;
             }
 
-            // Find the row
+            // 找到這格所在的那一列
             var row = cell.closest('tr');
 
-            // Update my_price cell
+            // 更新「我的價格」欄
             var myCell = row.querySelector('[data-type="my_price"]');
             var myVal = data.my_price;
             myCell.querySelector('.cell-value').textContent = myVal !== null ? myVal : '-';
 
-            // Update friend_price cell
+            // 更新「好友價格」欄
             var friendCell = row.querySelector('[data-type="friend_price"]');
             var friendVal = data.friend_price;
             friendCell.querySelector('.cell-value').textContent = friendVal !== null ? friendVal : '-';
@@ -146,7 +158,7 @@
                 friendCell.dataset.friendName = data.best_friend;
             }
 
-            // Update friend name column (4th td, index 3) — keep it editable
+            // 更新「好友」欄（第 4 格），要保留它可以點進去改名
             var cells = row.querySelectorAll('td');
             var fnCell = cells[3];
             var rawName = data.best_friend || '';
@@ -154,18 +166,23 @@
             fnCell.innerHTML = '<span class="fn-value"><small>' + (data.best_friend || '-') + '</small></span>' +
                 (rawName ? ' <button class="btn btn-sm edit-btn fn-edit-btn" title="修正名稱">&#9998;</button>' : '');
 
-            // Update profit
+            // 更新「利潤」欄
             var profitCell = row.querySelector('.profit-cell');
             profitCell.innerHTML = renderProfit(data.profit);
 
-            // Update badge
+            // 更新「建議」欄（建議囤貨這裡算不出來，保留伺服器原本掛的那顆）
             var badgeCell = row.querySelector('.badge-cell');
-            badgeCell.innerHTML = renderBadge(data.profit);
+            var stockpileBadge = badgeCell.querySelector('[data-stockpile-pick]');
+            badgeCell.innerHTML = renderBadge(data.profit, row);
+            if (stockpileBadge) {
+                badgeCell.appendChild(document.createElement('br'));
+                badgeCell.appendChild(stockpileBadge);
+            }
 
-            // Update row highlight
+            // 更新整列的底色
             updateRowClass(row, data.profit);
 
-            // Close editor and flash
+            // 收起編輯框，然後閃一下
             closeActiveEditor();
             flashCell(cell);
         })
@@ -176,9 +193,9 @@
         });
     }
 
-    // Event delegation
+    // 事件統一掛在 document 上，動態產生的按鈕才點得到
     document.addEventListener('click', function (e) {
-        // Edit button click
+        // 點了鉛筆圖示
         if (e.target.closest('.edit-btn')) {
             e.preventDefault();
             var cell = e.target.closest('.editable-cell');
@@ -186,7 +203,7 @@
             return;
         }
 
-        // Confirm button
+        // 點了打勾
         if (e.target.closest('.confirm-edit')) {
             e.preventDefault();
             var cell = e.target.closest('.editable-cell');
@@ -194,20 +211,20 @@
             return;
         }
 
-        // Cancel button
+        // 點了叉叉
         if (e.target.closest('.cancel-edit')) {
             e.preventDefault();
             closeActiveEditor();
             return;
         }
 
-        // Click outside editor closes it
+        // 點編輯框外面就收起來
         if (!e.target.closest('.inline-edit-form') && !e.target.closest('.edit-btn')) {
             closeActiveEditor();
         }
     });
 
-    // Keyboard: Enter to confirm, Escape to cancel
+    // 鍵盤：Enter 確認、Esc 取消
     document.addEventListener('keydown', function (e) {
         var form = document.querySelector('.inline-edit-form');
         if (!form) return;

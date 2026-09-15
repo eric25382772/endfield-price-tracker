@@ -82,10 +82,10 @@ REGION_QUOTA = {
 
 
 def get_all_item_names_cn():
-    """Return list of all Chinese item names for OCR matching."""
+    """回傳全部物品的中文名，給文字辨識比對用。"""
     return [item["name_cn"] for item in ELASTIC_GOODS]
 
 
 def get_items_by_region(region):
-    """Return items for a specific region."""
+    """回傳某個地區的物品清單。"""
     return [item for item in ELASTIC_GOODS if item.get("region") == region]

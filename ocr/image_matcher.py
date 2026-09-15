@@ -327,7 +327,7 @@ def match_item_features(crop, ref_images, region_item_ids=None):
         ref_gray = cv2.cvtColor(ref_resized, cv2.COLOR_BGR2GRAY)
         ref_hsv = cv2.cvtColor(ref_resized, cv2.COLOR_BGR2HSV)
 
-        # ORB
+        # ORB 特徵點比對
         kp2, des2 = orb.detectAndCompute(ref_gray, None)
         orb_score = 0.0
         if des1 is not None and des2 is not None and len(des1) > 0 and len(des2) > 0:
@@ -414,7 +414,7 @@ def identify_friend_item(screenshot_path, region_hint=None):
         print(f"  使用好友參考圖比對 ({len(available_friend)} 張)")
         item_id, score = match_friend_images(crop, friend_refs, region_ids)
     else:
-        # Fallback: 用市場卡片參考圖
+        # 備援：改用市場卡片參考圖
         ref_images = load_reference_images()
         if not ref_images:
             print("  警告: 無參考圖片")

@@ -202,25 +202,25 @@ body {
 .region-title .badge.quota-full {
     background-color: var(--ef-down) !important; color: #111 !important;
 }
-/* v6.1：當日價格／囤貨切換下拉，取代原本只寫地區名的 region-badge。
-   地區名已經在上方分頁列，這格改成放真正能操作的東西。 */
-.ef-vsel {
-    appearance: none; -webkit-appearance: none; font-family: inherit;
-    display: inline-block; padding: 4px 34px 4px 16px; border: none; border-radius: 0;
-    font-size: 1rem; font-weight: 900; color: #111; cursor: pointer;
-    clip-path: polygon(0 0, 100% 0, 96% 100%, 0% 100%);
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%23111' stroke-width='2'/></svg>");
-    background-repeat: no-repeat; background-position: right 12px center;
-    transition: filter .12s, box-shadow .12s;
+/* 當日價格／囤貨切換，取代原本只寫地區名的 region-badge。
+   地區名已經在上方分頁列，這格改成放真正能操作的東西。
+   兩顆並排而不是下拉：選項只有兩個，不用點開就該看得到。 */
+.ef-vseg {
+    display: inline-flex; overflow: hidden;
+    clip-path: polygon(0 0, 100% 0, 97% 100%, 0% 100%);
 }
-/* 兩個地區、兩種檢視都要一樣寬：不給 min-width 的話，
-   選到字比較短的「囤貨」時整顆會縮，兩區看起來就不對齊 */
-.ef-vsel { min-width: 7.6rem; }
-.ef-vsel.valley { background-color: var(--ef-yellow); }
-.ef-vsel.wuling { background-color: var(--ef-green); }
-.ef-vsel:hover { filter: brightness(1.15); box-shadow: inset 0 0 0 2px rgba(255,255,255,.28); }
-/* 展開後的選項清單走深色，不然會繼承上面的金／綠底 */
-.ef-vsel option { background: var(--ef-surf); color: var(--ef-txt); }
+.ef-vbtn {
+    font-family: inherit; border: none; border-radius: 0; padding: 4px 16px;
+    font-size: 1rem; font-weight: 900; cursor: pointer;
+    background: var(--ef-surf); color: var(--ef-mut);
+    transition: filter .12s, background-color .12s, color .12s;
+}
+/* 兩個地區、兩種檢視都要一樣寬，不然切過去整組會縮，兩區看起來就不對齊 */
+.ef-vbtn { min-width: 6.6rem; }
+.ef-vbtn:hover { filter: brightness(1.6); }
+.ef-vseg.valley .ef-vbtn.on { background: var(--ef-yellow); color: #111; }
+.ef-vseg.wuling .ef-vbtn.on { background: var(--ef-green);  color: #111; }
+.ef-vbtn.on:hover { filter: brightness(1.15); }
 
 /* v6.1：沒掃到東西時的指路文字（取代一整排空白列） */
 .ef-empty {
@@ -251,7 +251,7 @@ body {
 .region-section.is-scanning .scanning-overlay { display: flex; }
 .scan-placeholder { color: var(--ef-yellow); font-weight: normal; font-size: .95em; font-style: italic; }
 
-/* ===== Inline edit ===== */
+/* ===== 表格內直接編輯 ===== */
 /* 格子設 relative、編輯鈕絕對定位 → 數字/名字真正置中，不被隱形按鈕擠偏 */
 .editable-cell, .friend-name-cell { position: relative; }
 .editable-cell .edit-btn, .friend-name-cell .fn-edit-btn {
@@ -394,4 +394,4 @@ button, .btn, select, .ef-rtab, .ef-arrow, [role="button"] { cursor: pointer; }
 
 /* 鍵盤 Tab 過來的人也要看得出焦點在哪 */
 :focus-visible { outline: 2px solid var(--ef-yellow); outline-offset: 2px; }
-.ef-vsel:focus-visible { outline-color: #fff; outline-offset: 1px; }
+.ef-vbtn:focus-visible { outline-color: #fff; outline-offset: -3px; }

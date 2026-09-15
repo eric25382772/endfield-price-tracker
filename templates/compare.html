@@ -3,26 +3,17 @@
 {% macro item_image(item) %}
 <img src="/static/images/items/item_{{ item.item_id }}.png" alt="{{ item.name_cn }}" style="width:50px;height:auto;vertical-align:middle;margin-right:8px;border-radius:4px;">
 {% endmacro %}
-{% macro suggestion_badge(item, region_quota, region_max, region_best_id, region_top_profit) %}
+{% macro suggestion_badge(item, region_best_id, region_top_profit) %}
     {# v3.2 / v4.0.1:
        - 必買：同區當日最高利潤 且 利潤 >= profit_threshold（爛日子最高也不到門檻 → 掉成「可買」）
        - 別買：該物品明日預測利潤 > 同區今日最高利潤 × wait_gain_ratio + 信心度 + 配額未滿（= 今天先別買、明天再買）
        - 建議囤貨：每區只留一個 = 合格物品中「天花板 - 買價」最大者（合格判斷見 app.py _mark_stockpile）
        必買/可買 與 建議囤貨 可同時出現，由使用者決定要囤還是現賣。
     #}
-    {% set quota_not_full = (region_quota is none) or (region_quota.remaining < region_max) %}
-    {# v3.2 補：show_wait 加「該物品今日有正利潤 + 同區當日已有基準」前提，避免空白時誤掛；
+    {# show_wait 由 app.py _mark_row_flags 算好（底色也要用同一份判斷）：
+       v3.2 補「該物品今日有正利潤 + 同區當日已有基準」前提，避免空白時誤掛；
        v4.0.1：該物品可囤（買低+會漲）時不喊別買（兩者邏輯相反） #}
-    {% set show_wait = (
-        item.profit is not none and item.profit > 0
-        and region_top_profit is not none and region_top_profit > 0
-        and item.pred_profit is not none
-        and item.pred_profit > region_top_profit * wait_gain_ratio
-        and item.pred_confidence >= wait_min_confidence
-        and quota_not_full
-        and not item.stockpile_eligible
-    ) %}
-    {% if show_wait %}
+    {% if item.show_wait %}
         <span class="badge bg-warning text-dark" title="今天先別買，明天買更划算（用較不準的買進預測，僅供參考）。同區今日最高 +{{ region_top_profit }}，此物品明日預測 +{{ item.pred_profit }}">
             &#9203; 別買 (信心 {{ (item.pred_confidence*100)|int }}%)
         </span>
@@ -42,7 +33,7 @@
         <span class="text-muted">-</span>
     {% endif %}
     {% if item.stockpile_pick %}
-        <br><span class="badge bg-warning text-dark mt-1"
+        <br><span class="badge bg-warning text-dark mt-1" data-stockpile-pick
                  title="本區囤到天花板能賺最多的選擇。買價 {{ item.my_price }} 落在史上 {{ item.my_low }}~{{ item.my_high }} 的 {{ item.stockpile_pos }}%（合格線 {{ stockpile_pos_limit }}%）；好友史上最高賣 {{ item.sell_ceiling }}（同區第 {{ item.sell_ceiling_rank }} 名），扣掉買價可賺 +{{ item.sell_ceiling - item.my_price }}；{{ item.stockpile_reason }}">建議囤貨</span>
     {% endif %}
     {% if item.pred_thin %}
@@ -216,14 +207,17 @@
 <div class="region-section mb-4" data-region="valley_iv">
     <div class="region-head d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <h4 class="region-title mb-0 d-flex align-items-center gap-2">
-            <select class="ef-vsel valley" data-vsel aria-label="四號谷地：切換當日價格／囤貨">
-                <option value="price">當日價格</option>
-                <option value="stock">囤貨</option>
-            </select>
+            <span class="ef-vseg valley" role="group" aria-label="四號谷地：切換當日價格／囤貨">
+                <button type="button" class="ef-vbtn on" data-vbtn="price">當日價格</button>
+                <button type="button" class="ef-vbtn" data-vbtn="stock">囤貨</button>
+            </span>
+            {# 上限因人而異（新手還沒解滿配），沒掃到就不猜，整個徽章不顯示 #}
+            {% if valley_quota %}
             <span class="badge bg-warning text-dark fs-6{% if valley_quota_full %} quota-full{% endif %}"
                   data-quota{% if valley_quota_full %} title="配額已頂到上限，今天不買的話這些額度就浪費了"{% endif %}>
-                剩餘 {% if valley_quota %}{{ valley_quota.remaining }}{% else %}?{% endif %} / {{ region_quota.valley_iv.max }}
+                剩餘 {{ valley_quota.remaining }} / {{ valley_quota.max_quota }}
             </span>
+            {% endif %}
             <span class="scan-indicator d-none" data-region="valley_iv" data-empty="{{ 'true' if not valley_has_my else 'false' }}">
                 <span class="spinner-border spinner-border-sm text-warning" role="status"></span>
                 <small class="text-warning ms-1 scan-indicator-text">辨識中…</small>
@@ -264,7 +258,8 @@
             </thead>
             <tbody>
                 {% for item in valley_comparison %}
-                <tr data-item-id="{{ item.item_id }}" class="{% if item.profit is not none and item.profit >= profit_threshold %}table-success{% elif item.profit is not none and item.profit < 0 %}table-danger{% endif %}">
+                {# 綠底＝必買／建議囤貨（跟「建議」欄同一份判斷，見 app.py _mark_row_flags） #}
+                <tr data-item-id="{{ item.item_id }}" class="{% if item.row_green %}table-success{% elif item.profit is not none and item.profit < 0 %}table-danger{% endif %}">
                     <td>
                         {{ item_image(item) }}
                         <strong>{{ item.name_cn }}</strong>
@@ -301,7 +296,7 @@
                         {% endif %}
                     </td>
                     <td class="text-center badge-cell">
-                        {{ suggestion_badge(item, valley_quota, region_quota.valley_iv.max, valley_best_id, valley_top_profit) }}
+                        {{ suggestion_badge(item, valley_best_id, valley_top_profit) }}
                     </td>
                 </tr>
                 {% endfor %}
@@ -322,14 +317,16 @@
 <div class="region-section mb-4" data-region="wuling">
     <div class="region-head d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
         <h4 class="region-title mb-0 d-flex align-items-center gap-2">
-            <select class="ef-vsel wuling" data-vsel aria-label="武陵：切換當日價格／囤貨">
-                <option value="price">當日價格</option>
-                <option value="stock">囤貨</option>
-            </select>
+            <span class="ef-vseg wuling" role="group" aria-label="武陵：切換當日價格／囤貨">
+                <button type="button" class="ef-vbtn on" data-vbtn="price">當日價格</button>
+                <button type="button" class="ef-vbtn" data-vbtn="stock">囤貨</button>
+            </span>
+            {% if wuling_quota %}
             <span class="badge bg-warning text-dark fs-6{% if wuling_quota_full %} quota-full{% endif %}"
                   data-quota{% if wuling_quota_full %} title="配額已頂到上限，今天不買的話這些額度就浪費了"{% endif %}>
-                剩餘 {% if wuling_quota %}{{ wuling_quota.remaining }}{% else %}?{% endif %} / {{ region_quota.wuling.max }}
+                剩餘 {{ wuling_quota.remaining }} / {{ wuling_quota.max_quota }}
             </span>
+            {% endif %}
             <span class="scan-indicator d-none" data-region="wuling" data-empty="{{ 'true' if not wuling_has_my else 'false' }}">
                 <span class="spinner-border spinner-border-sm text-warning" role="status"></span>
                 <small class="text-warning ms-1 scan-indicator-text">辨識中…</small>
@@ -370,7 +367,8 @@
             </thead>
             <tbody>
                 {% for item in wuling_comparison %}
-                <tr data-item-id="{{ item.item_id }}" class="{% if item.profit is not none and item.profit >= profit_threshold %}table-success{% elif item.profit is not none and item.profit < 0 %}table-danger{% endif %}">
+                {# 綠底＝必買／建議囤貨（跟「建議」欄同一份判斷，見 app.py _mark_row_flags） #}
+                <tr data-item-id="{{ item.item_id }}" class="{% if item.row_green %}table-success{% elif item.profit is not none and item.profit < 0 %}table-danger{% endif %}">
                     <td>
                         {{ item_image(item) }}
                         <strong>{{ item.name_cn }}</strong>
@@ -407,7 +405,7 @@
                         {% endif %}
                     </td>
                     <td class="text-center badge-cell">
-                        {{ suggestion_badge(item, wuling_quota, region_quota.wuling.max, wuling_best_id, wuling_top_profit) }}
+                        {{ suggestion_badge(item, wuling_best_id, wuling_top_profit) }}
                     </td>
                 </tr>
                 {% endfor %}
@@ -449,6 +447,7 @@
 {% block scripts %}
 <script>
     window.PROFIT_THRESHOLD = {{ profit_threshold }};
+    window.BUYABLE_RATIO = {{ buyable_ratio }};
 </script>
 <script>
 // 地區分頁：切換 / 記憶上次地區 / 掃描時自動跳轉（setCompareRegion 由 base.html 輪詢呼叫）
@@ -475,22 +474,24 @@
 })();
 </script>
 <script>
-// v6.1 當日價格／囤貨下拉：不記憶選擇，每次進來都停在「當日價格」；
+// v6.1 當日價格／囤貨切換：不記憶選擇，每次進來都停在「當日價格」；
 // F4 掃完由 base.html 呼叫 setCompareView(region,'stock') 自動跳過去。
 (function () {
     function apply(sec, view) {
         sec.querySelectorAll('[data-view-body]').forEach(function (b) {
             b.style.display = (b.dataset.viewBody === view) ? '' : 'none';
         });
-        var sel = sec.querySelector('[data-vsel]');
-        if (sel) sel.value = view;
+        sec.querySelectorAll('[data-vbtn]').forEach(function (b) {
+            b.classList.toggle('on', b.dataset.vbtn === view);
+        });
         // 剩餘配額是「今天還能買多少」，只跟當日價格有關；囤貨看的是已經買到手的
         var q = sec.querySelector('[data-quota]');
         if (q) q.style.display = (view === 'price') ? '' : 'none';
     }
     document.querySelectorAll('.region-section[data-region]').forEach(function (sec) {
-        var sel = sec.querySelector('[data-vsel]');
-        if (sel) sel.addEventListener('change', function () { apply(sec, sel.value); });
+        sec.querySelectorAll('[data-vbtn]').forEach(function (b) {
+            b.addEventListener('click', function () { apply(sec, b.dataset.vbtn); });
+        });
         // F4 掃完會 reload，旗標在這裡消化掉（用完即丟：手動切回當日價格後不會再自己跳）
         var key = 'compare_view_' + sec.dataset.region;
         try {

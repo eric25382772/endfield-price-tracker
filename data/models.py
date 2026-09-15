@@ -5,7 +5,7 @@ from data.items import ELASTIC_GOODS
 
 
 def get_db():
-    """Get a database connection."""
+    """開一條資料庫連線。"""
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -20,7 +20,7 @@ def get_db():
 
 
 def init_db():
-    """Initialize database schema and seed items."""
+    """建好資料表，並把物品清單寫進去（已存在的會跳過）。"""
     conn = get_db()
     cursor = conn.cursor()
 
@@ -100,7 +100,7 @@ def init_db():
         )
     """)
 
-    # Seed items
+    # 把物品清單塞進 items 表
     for item in ELASTIC_GOODS:
         cursor.execute(
             "INSERT OR IGNORE INTO items (name_cn, name_en, base_price, region) VALUES (?, ?, ?, ?)",
@@ -112,7 +112,7 @@ def init_db():
 
 
 def reset_db():
-    """Drop and recreate all tables."""
+    """把所有資料表砍掉重建（歸零重來用）。"""
     # WAL 下未 checkpoint 的資料在 -wal 裡；只刪主檔會被殘留的 -wal 帶回舊資料
     for path in (DB_PATH, DB_PATH + '-wal', DB_PATH + '-shm'):
         if os.path.exists(path):

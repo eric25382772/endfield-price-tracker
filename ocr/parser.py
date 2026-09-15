@@ -22,27 +22,27 @@ def parse_ocr_results(ocr_results, items_db):
     known_names = get_all_item_names_cn()
     item_name_to_id = {item['name_cn']: item['id'] for item in items_db}
 
-    # First try row-based grouping
+    # 先試「同一列」的分法：y 座標相近的視為同一列
     results = _parse_by_rows(ocr_results, known_names, item_name_to_id)
 
-    # Check if we got enough complete pairs (both name and price)
+    # 檢查湊成完整配對（名稱＋價格都有）的有幾組
     complete = [r for r in results if r['item_id'] and r['price']]
 
     if len(complete) >= 3:
         return results
 
-    # Fallback: proximity-based matching (more robust for full window captures)
+    # 備援：改用「誰離誰近」來配對（截整個視窗時比較不會出錯）
     proximity_results = _parse_by_proximity(ocr_results, known_names, item_name_to_id)
     prox_complete = [r for r in proximity_results if r['item_id'] and r['price']]
 
-    # Use whichever method found more complete pairs
+    # 兩種方法哪個配對到的組數多就用哪個
     if len(prox_complete) >= len(complete):
         return proximity_results
     return results
 
 
 def _parse_by_rows(ocr_results, known_names, item_name_to_id):
-    """Original row-based parsing with increased tolerance."""
+    """最早的「同一列」解析法，y 容差放寬過。"""
     rows = group_by_row(ocr_results, tolerance=50)
 
     results = []
@@ -57,14 +57,14 @@ def _parse_by_rows(ocr_results, known_names, item_name_to_id):
             text = block['text'].strip()
             ocr_text_parts.append(text)
 
-            # Try to extract price (3-4 digit number in range 400-6000)
+            # 試著抓價格（3~4 位數，範圍 400~6000）
             price_match = re.search(r'(\d{3,4})', text)
             if price_match:
                 val = int(price_match.group(1))
                 if 400 <= val <= 6000:
                     price = val
 
-            # Try fuzzy matching against known item names
+            # 試著跟已知的物品名做模糊比對
             if len(text) >= 2:
                 match_result = process.extractOne(
                     text, known_names,
@@ -99,7 +99,7 @@ def _parse_by_proximity(ocr_results, known_names, item_name_to_id):
     if not ocr_results:
         return []
 
-    # Collect all recognized item names with positions
+    # 收集所有辨識到的物品名，連同它的座標
     name_blocks = []
     for block in ocr_results:
         text = block['text'].strip()
@@ -113,7 +113,7 @@ def _parse_by_proximity(ocr_results, known_names, item_name_to_id):
             matched_name = match_result[0]
             score = match_result[1]
             if score >= FUZZY_MATCH_THRESHOLD:
-                # Avoid duplicates (same item matched multiple times)
+                # 避免重複（同一個物品被比對到好幾次）
                 if not any(nb['name'] == matched_name for nb in name_blocks):
                     name_blocks.append({
                         'name': matched_name,
@@ -125,7 +125,7 @@ def _parse_by_proximity(ocr_results, known_names, item_name_to_id):
                         'score': score,
                     })
 
-    # Collect all valid prices with positions
+    # 收集所有合格的價格，連同它的座標
     price_blocks = []
     for block in ocr_results:
         text = block['text'].strip()
@@ -133,7 +133,7 @@ def _parse_by_proximity(ocr_results, known_names, item_name_to_id):
         if not price_match:
             price_match = re.search(r'(\d{3,4})', text)
             if price_match:
-                # Only use if the text is mostly a number (avoid matching % or dates)
+                # 整串幾乎都是數字才採用（擋掉百分比和日期）
                 if len(text) > len(price_match.group(0)) + 2:
                     continue
         if price_match:
@@ -146,7 +146,7 @@ def _parse_by_proximity(ocr_results, known_names, item_name_to_id):
                     'ocr_text': text,
                 })
 
-    # Match each name to the closest price by x+y distance
+    # 每個名稱配一個距離最近的價格（同時看 x 和 y）
     # 價格在物品名正上方，x 要對齊，y 稍高
     results = []
     used_prices = set()
@@ -194,7 +194,7 @@ def group_by_row(ocr_results, tolerance=50):
     if not ocr_results:
         return []
 
-    # Sort by y position
+    # 依 y 座標由上到下排
     sorted_results = sorted(ocr_results, key=lambda x: x['center_y'])
 
     rows = []
@@ -204,7 +204,7 @@ def group_by_row(ocr_results, tolerance=50):
         if abs(block['center_y'] - current_row[0]['center_y']) <= tolerance:
             current_row.append(block)
         else:
-            # Sort row by x position
+            # 同一列內再依 x 座標由左到右排
             current_row.sort(key=lambda x: x['center_x'])
             rows.append(current_row)
             current_row = [block]

@@ -3,7 +3,7 @@ from config import get_game_date
 
 
 def get_all_items():
-    """Get all items from the database."""
+    """撈出資料庫裡全部的物品。"""
     conn = get_db()
     items = conn.execute("SELECT * FROM items ORDER BY id").fetchall()
     conn.close()
@@ -11,7 +11,7 @@ def get_all_items():
 
 
 def get_items_by_region(region):
-    """Get items for a specific region."""
+    """撈出某個地區的物品。"""
     conn = get_db()
     items = conn.execute("SELECT * FROM items WHERE region = ? ORDER BY id", (region,)).fetchall()
     conn.close()
@@ -19,7 +19,7 @@ def get_items_by_region(region):
 
 
 def upsert_price(item_id, market_price, game_date=None, source='manual'):
-    """Insert or update a price record."""
+    """寫入我的價格；同一天同一物品已存在就覆蓋。"""
     if game_date is None:
         game_date = get_game_date()
     conn = get_db()
@@ -36,7 +36,7 @@ def upsert_price(item_id, market_price, game_date=None, source='manual'):
 
 
 def upsert_quota(region, remaining, max_quota, game_date=None):
-    """Insert or update purchase quota for a region."""
+    """寫入某地區的購買配額；同一天已存在就覆蓋。"""
     if game_date is None:
         game_date = get_game_date()
     conn = get_db()
@@ -53,7 +53,7 @@ def upsert_quota(region, remaining, max_quota, game_date=None):
 
 
 def get_quota(region, game_date=None):
-    """Get purchase quota for a region on a date."""
+    """讀取某地區、某天的購買配額。"""
     if game_date is None:
         game_date = get_game_date()
     conn = get_db()
@@ -65,7 +65,7 @@ def get_quota(region, game_date=None):
 
 
 def delete_friend_prices_for_item(item_id, game_date=None):
-    """Delete all friend prices for a specific item on a date (before re-scanning)."""
+    """清掉某物品某天的所有好友價（重掃前先清，免得新舊混在一起）。"""
     if game_date is None:
         game_date = get_game_date()
     conn = get_db()
@@ -77,7 +77,7 @@ def delete_friend_prices_for_item(item_id, game_date=None):
 
 
 def upsert_friend_price(item_id, market_price, friend_name='好友', game_date=None, source='ocr'):
-    """Insert or update a friend's price record."""
+    """寫入一筆好友價；同一天同一物品同一好友已存在就覆蓋。"""
     if game_date is None:
         game_date = get_game_date()
     conn = get_db()
@@ -175,7 +175,7 @@ _PROFIT_SQL = """
 
 
 def get_profit_comparison(region, game_date=None):
-    """Compare self prices vs best friend prices, calculate profit, sorted by profit desc."""
+    """把我的價格和好友最高價湊成一列、算出利潤，依利潤由高到低排。"""
     if game_date is None:
         game_date = get_game_date()
     conn = get_db()
@@ -189,7 +189,7 @@ def get_profit_comparison(region, game_date=None):
 
 
 def get_item_profit(item_id, game_date=None):
-    """Get profit comparison data for a single item."""
+    """只取單一物品的利潤比對結果。"""
     if game_date is None:
         game_date = get_game_date()
     conn = get_db()
@@ -317,7 +317,7 @@ def restore_snapshot(snapshot):
 
 
 def get_available_dates(limit=30):
-    """Get list of dates that have price data."""
+    """列出有價格資料的所有日期。"""
     conn = get_db()
     rows = conn.execute("""
         SELECT DISTINCT game_date FROM prices
