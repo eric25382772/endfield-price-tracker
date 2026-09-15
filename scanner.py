@@ -281,6 +281,68 @@ def reap_leftover_instances():
         pass
 
 
+SHORTCUT_NAME = '終末地追蹤器.lnk'
+
+
+def _shortcut_paths():
+    """安裝程式會建立的捷徑位置（桌面 ＋ 開始功能表，全機與單人各一組）。"""
+    env = os.environ.get
+    start_menu = r'Microsoft\Windows\Start Menu\Programs'
+    roots = [
+        (env('PUBLIC'), 'Desktop'),
+        (env('USERPROFILE'), 'Desktop'),
+        (env('ProgramData'), start_menu + '\\終末地追蹤器'),
+        (env('APPDATA'), start_menu + '\\終末地追蹤器'),
+    ]
+    return [Path(base) / sub / SHORTCUT_NAME for base, sub in roots if base]
+
+
+def fix_shortcut_icons():
+    """把舊捷徑補上程式圖示。
+
+    v6.1.1 才在 installer 加 IconFilename，但自動更新只換程式檔案、不會動捷徑，
+    所以在那之前安裝的人捷徑圖示永遠是空的。這裡啟動時補一次。
+
+    只動「指向這份安裝、而且圖示欄位是空的」捷徑 —— 使用者自己換過圖就不覆蓋。
+    """
+    icon = Path(__file__).parent / 'static' / 'images' / 'app.ico'
+    target = Path(__file__).parent / 'start_scanner.bat'
+    todo = [p for p in _shortcut_paths() if p.exists()]
+    if not icon.exists() or not todo:
+        return
+
+    lines = [
+        '$ws = New-Object -ComObject WScript.Shell',
+        f'$icon = "{icon}"',
+        f'$target = "{target}"',
+        'foreach ($p in @(' + ','.join(f'"{p}"' for p in todo) + ')) {',
+        '  try {',
+        '    $l = $ws.CreateShortcut($p)',
+        '    if ($l.TargetPath -ieq $target -and $l.IconLocation -replace ",0$","" -eq "") {',
+        '      $l.IconLocation = "$icon,0"; $l.Save(); Write-Output $p',
+        '    }',
+        '  } catch {}',
+        '}',
+    ]
+    try:
+        out = subprocess.run(
+            ['powershell', '-NoProfile', '-NonInteractive', '-Command', '\n'.join(lines)],
+            capture_output=True, text=True, timeout=20,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        ).stdout.strip()
+    except Exception:
+        return
+    if not out:
+        return
+    for p in out.splitlines():
+        print(f"  已補上捷徑圖示: {p.strip()}")
+    # 通知檔案總管重畫，不然要等下次登入才看得到新圖
+    try:
+        ctypes.windll.shell32.SHChangeNotify(0x08000000, 0x0000, None, None)
+    except Exception:
+        pass
+
+
 def ensure_flask():
     """確保 Flask 在運行，如果沒有就啟動它。"""
     global flask_process
@@ -1488,6 +1550,8 @@ def main():
         updater.restart()  # 不返回
 
     init_db()
+
+    fix_shortcut_icons()
 
     _purge_old_uploads()
 

@@ -1,5 +1,8 @@
 # 版本更新紀錄
 
+## v6.1.2
+- **啟動時自動補上捷徑圖示**：v6.1.1 是在 `EndfieldTracker.iss` 加 `IconFilename`，只有重跑 setup.exe 才生效；`updater` 只替換程式檔案、不碰捷徑，所以走自動更新的舊使用者 `app.ico` 明明已下載到位，桌面捷徑仍是空的圖示欄位（`,0`）。新增 `fix_shortcut_icons()`，掛在 `main()` 的 `init_db()` 之後，檢查桌面與開始功能表（全機／單人共四個位置）的 `終末地追蹤器.lnk`，透過 PowerShell 的 `WScript.Shell` COM 補寫 `IconLocation`，再以 `SHChangeNotify(SHCNE_ASSOCCHANGED)` 通知檔案總管重畫。兩道防線：`TargetPath` 必須等於本份安裝的 `start_scanner.bat`（不誤改其他程式的同名捷徑）、`IconLocation` 必須是空的（使用者自訂過就不覆蓋）。權限不足等任何例外一律靜默跳過，不影響啟動——全機範圍的捷徑需要管理員權限，而 `start_scanner.bat` 本來就以 `-Verb RunAs` 提權，故實際使用情境下寫得進去
+
 ## v6.1.1
 - **每日配額上限改成信任 OCR，不再拿寫死的表對答案**：`parse_remaining_quota()` 原本要求辨識到的上限必須 `== REGION_QUOTA_HISTORY` 該日的 `max`，對不上就整包丟掉。新手玩家還沒解滿配（例如 65/130），螢幕明明有數字卻只顯示 `? / 430`。改為直接採用畫面讀到的值，只做合理性檢查（`20 <= total <= 9999` 且 `0 <= remaining <= total`）。`region` / `game_date` 參數隨之孤立，一併移除；`daily` 欄位全專案沒有任何地方在用（只有一行死賦值），也刪掉。網頁側 `app.py` 新增 `_region_cfg()`，上限以 `quotas` 表當天那筆為準，沒掃過才退回寫死的表——`_buy_window()`、`_mark_stockpile()`、徽章轉紅判斷全部跟著走正確上限。`/quota` 手動修改路由也改成沿用已掃到的上限，不再蓋回滿配值
 - **沒掃到就不顯示配額徽章**：上限因人而異，猜一個顯示反而誤導。`compare.html` 兩顆徽章包上 `{% if X_quota %}`，數字直接印 `quota.max_quota`
