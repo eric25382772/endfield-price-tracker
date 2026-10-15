@@ -101,10 +101,12 @@ def init_db():
     """)
 
     # 把物品清單塞進 items 表
-    for item in ELASTIC_GOODS:
+    # 帶顯式 id：AUTOINCREMENT 連被 IGNORE 的 row 也會吃掉 seq，放任自動配號會讓新物品
+    # 拿到四位數 id，撞爛 image_matcher 的 13-25 範圍（詳見 .claude/rules/item-assets.md）
+    for idx, item in enumerate(ELASTIC_GOODS, start=1):
         cursor.execute(
-            "INSERT OR IGNORE INTO items (name_cn, name_en, base_price, region) VALUES (?, ?, ?, ?)",
-            (item["name_cn"], item["name_en"], item["base_price"], item["region"])
+            "INSERT OR IGNORE INTO items (id, name_cn, name_en, base_price, region) VALUES (?, ?, ?, ?, ?)",
+            (idx, item["name_cn"], item["name_en"], item["base_price"], item["region"])
         )
 
     conn.commit()

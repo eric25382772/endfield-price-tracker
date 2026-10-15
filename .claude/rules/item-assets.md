@@ -19,11 +19,10 @@ paths:
 
 **兩份的裁切區域可以不同：** data 辨識版務必維持 image_matcher 的卡位區域（row1 y 420-660）才能跟 live 掃描同框比對；static 顯示版只求好看，若物品美術位置偏低（v5.0 的 item_22/23 美術落在 y≈470-710，用辨識框會被切一半），另裁一個框住整個物品的區域放 static 即可。
 
-## 新增物品直接用顯式 id INSERT
+## items 的 id 必須顯式指定（v7.0 起由 init_db 自動處理）
 
-```sql
-INSERT OR IGNORE INTO items (id, name_cn, ...) VALUES (22, ...);
-```
+[data/models.py](../../data/models.py) 的 seed 迴圈已改成 `enumerate(ELASTIC_GOODS, start=1)` 帶顯式 id
+INSERT，所以 **`ELASTIC_GOODS` 的排列順序 == item_id**，新物品只能往該地區清單的尾端加，不可插中間。
 
 **Why（三次踩坑的結論）：**
 
@@ -37,4 +36,4 @@ INSERT OR IGNORE INTO items (id, name_cn, ...) VALUES (22, ...);
 ## 目前 id 配置
 
 - 四號谷地：item_id 1-12（7+5 佈局）
-- 武陵：item_id 13-24（v6.0 起 7+5，共 12 項）
+- 武陵：item_id 13-25（v7.0 起 7+6，共 13 項）

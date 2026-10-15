@@ -33,3 +33,5 @@ EndfieldTracker_Setup_*.exe
 update_v*.zip
 # 根目錄的分析／體檢報告（給人看的一次性 HTML，不進版控；templates/ 不受影響）
 /*.html
+# 開發版啟動捷徑（點兩下＝管理員權限跑 start_scanner.bat，不進版控但要留著）
+/終末地追蹤器.lnk

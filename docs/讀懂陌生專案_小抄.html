@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>讀懂陌生專案 — 小抄</title>
+<style>
+  :root {
+    --bg: #14161a;
+    --card: #1d2026;
+    --line: #2f333c;
+    --text: #e8eaed;
+    --dim: #a2a8b4;
+    --accent: #7ab8ff;
+    --warn: #ffcc66;
+    --code-bg: #0e1013;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 20px 80px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", "Microsoft JhengHei", system-ui, sans-serif;
+    font-size: 20px;
+    line-height: 1.75;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; }
+  h1 {
+    font-size: 34px;
+    margin: 0 0 6px;
+    letter-spacing: .5px;
+  }
+  .sub { color: var(--dim); font-size: 17px; margin-bottom: 36px; }
+  h2 {
+    font-size: 26px;
+    margin: 44px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--line);
+  }
+  h3 { font-size: 21px; margin: 26px 0 8px; color: var(--accent); }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin: 16px 0;
+  }
+  .big-idea {
+    border-left: 5px solid var(--accent);
+    background: var(--card);
+    border-radius: 0 10px 10px 0;
+    padding: 16px 22px;
+    margin: 14px 0;
+  }
+  .big-idea b { font-size: 21px; }
+  .big-idea p { margin: 6px 0 0; color: var(--dim); font-size: 18px; }
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 16px;
+    overflow-x: auto;
+    font-size: 16px;
+    line-height: 1.6;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    margin: 10px 0;
+  }
+  code {
+    background: var(--code-bg);
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: .92em;
+    font-family: Consolas, "Cascadia Mono", monospace;
+  }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 18px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--dim); font-weight: 600; font-size: 16px; text-transform: uppercase; letter-spacing: .5px; }
+  .warn {
+    border-left: 5px solid var(--warn);
+    background: rgba(255, 204, 102, .07);
+    border-radius: 0 10px 10px 0;
+    padding: 14px 22px;
+    margin: 16px 0;
+  }
+  .steps { list-style: none; padding: 0; counter-reset: s; }
+  .steps li {
+    counter-increment: s;
+    position: relative;
+    padding: 12px 0 12px 56px;
+    border-bottom: 1px solid var(--line);
+  }
+  .steps li::before {
+    content: counter(s);
+    position: absolute; left: 0; top: 12px;
+    width: 36px; height: 36px;
+    background: var(--accent); color: #0e1013;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 19px;
+  }
+  .steps small { display: block; color: var(--dim); font-size: 16px; }
+  .tag {
+    display: inline-block; background: #2a3a4d; color: var(--accent);
+    padding: 1px 9px; border-radius: 4px; font-size: 15px; margin-left: 6px;
+  }
+  footer { margin-top: 60px; color: var(--dim); font-size: 16px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>讀懂陌生專案 — 小抄</h1>
+  <div class="sub">指令記不住是正常的。觀念記住就好，指令複製貼上。</div>
+
+  <h2>一、只要記住這三句</h2>
+
+  <div class="big-idea">
+    <b>1. 檔案大小 ≠ 重要性</b>
+    <p>最小的 <code>config.py</code>（3 KB）是地基，誰都需要它。大只代表「寫了很多」。</p>
+  </div>
+
+  <div class="big-idea">
+    <b>2. 沒人 import 你 = 你是入口</b>
+    <p>被很多人 import 的是「零件／地基」；一次都沒被 import 的 .py，就是直接拿來跑的入口檔。</p>
+  </div>
+
+  <div class="big-idea">
+    <b>3. 工具跑出來的結果要先懷疑</b>
+    <p>用你已知的事實去對答案。已知 config 是核心，結果裡卻沒有 → 是工具壞了，不是 config 不重要。這叫 sanity check。</p>
+  </div>
+
+  <h2>二、拆解陌生專案的五步</h2>
+
+  <ol class="steps">
+    <li><b>先看外觀，不開 code</b><small>檔案清單、大小、資料夾名字。分出「程式 / 文件 / 產物」。</small></li>
+    <li><b>找入口</b><small>程式從哪一行開始跑。用 import 統計找「沒被 import 的 .py」。</small></li>
+    <li><b>挑一個功能，追到底（tracing）</b><small>主菜。80% 的時間花這。中間看到不懂的先標記，不要繞路。</small></li>
+    <li><b>畫出你自己的地圖</b><small>寫下來，不要記在腦裡。</small></li>
+    <li><b>有疑問才回頭翻</b><small>永遠不主動從頭讀到尾。沒有人這樣做。</small></li>
+  </ol>
+
+  <div class="warn">
+    <b>核心心法：不要用讀的，要用查的。</b><br>
+    帶著問題去找答案，找到就停。
+  </div>
+
+  <h2>三、指令小抄（複製貼上用）</h2>
+
+  <h3>列出所有檔案，由大到小</h3>
+  <pre><code>Get-ChildItem g:\project -File | Sort-Object Length -Descending | Select-Object Name, Length</code></pre>
+  <table>
+    <tr><th>段落</th><th>作用</th></tr>
+    <tr><td><code>Get-ChildItem -File</code></td><td>列出檔案，不要資料夾</td></tr>
+    <tr><td><code>Sort-Object Length -Descending</code></td><td>照大小由大到小排</td></tr>
+    <tr><td><code>Select-Object Name, Length</code></td><td>只顯示名字和大小兩欄</td></tr>
+    <tr><td><code>|</code></td><td>pipe：把左邊結果餵給右邊</td></tr>
+  </table>
+
+  <h3>統計誰被 import 最多次 <span class="tag">找地基</span></h3>
+  <pre><code>Select-String -Path g:\project\*.py, g:\project\ocr\*.py, g:\project\data\*.py -Pattern "^(?:from|import)\s+([\w.]+)" |
+  ForEach-Object { $_.Matches[0].Groups[1].Value } |
+  Group-Object | Sort-Object Count -Descending | Select-Object Count, Name -First 20</code></pre>
+  <table>
+    <tr><th>段落</th><th>作用</th></tr>
+    <tr><td><code>^</code></td><td>正規表達式：行首。避開註解裡的 import</td></tr>
+    <tr><td><code>([\w.]+)</code></td><td>capture group（捕捉群組）：這一段單獨抓出來</td></tr>
+    <tr><td><code>$_.Matches[0].Groups[1].Value</code></td><td>把捕捉到的模組名取出</td></tr>
+    <tr><td><code>Group-Object</code></td><td>一樣的歸一組，順便數個數</td></tr>
+  </table>
+
+  <div class="warn">
+    <b>這行指令的已知漏洞：</b>因為用 <code>^</code> 卡行首，寫在函式裡面（有縮排）的 import 會被漏掉。
+    Python 允許 <code>def main():</code> 底下再寫 <code>import xxx</code>。
+  </div>
+
+  <h2>四、看到一行 code，怎麼分辨誰是誰</h2>
+
+  <pre><code>while f2_pending_lock.is_set():
+    time.sleep(0.3)</code></pre>
+
+  <table>
+    <tr><th>字</th><th>誰的</th><th>說明</th></tr>
+    <tr><td><code>while</code></td><td>Python 關鍵字</td><td>跟 C / Java 一樣</td></tr>
+    <tr><td><code>f2_pending_lock</code></td><td><b>作者自己取的</b></td><td>改叫 abc 也能跑</td></tr>
+    <tr><td><code>.is_set()</code></td><td>Python 標準庫</td><td>threading.Event 的方法</td></tr>
+    <tr><td><code>time.sleep()</code></td><td>Python 標準庫</td><td>暫停幾秒</td></tr>
+  </table>
+
+  <div class="big-idea">
+    <b>判斷法</b>
+    <p>名字在描述<b>這個專案特有的東西</b>（f2、friend、region、quota）→ 作者取的。<br>
+    名字很<b>通用</b>（get、set、sleep、append、open）→ 通常是 Python 的。</p>
+  </div>
+
+  <h2>五、名詞表</h2>
+
+  <table>
+    <tr><th>詞</th><th>白話</th></tr>
+    <tr><td>執行緒 thread</td><td>同一個程式裡的分身。彼此共用記憶體，看得到對方的變數</td></tr>
+    <tr><td>行程 process</td><td>完全獨立的程式。看不到對方的變數，要溝通得靠檔案或網路</td></tr>
+    <tr><td>佇列 queue</td><td>排隊的籃子。一邊丟一邊撿，先進先出</td></tr>
+    <tr><td>阻塞 blocking</td><td>「卡在這裡等」，等到有東西才往下走</td></tr>
+    <tr><td>Event（旗子）</td><td>只有開／關的燈號。<code>.set()</code> 開、<code>.clear()</code> 關、<code>.is_set()</code> 問亮不亮</td></tr>
+    <tr><td>tracing</td><td>挑一個使用者動作，從頭跟到尾，看資料流過哪些地方</td></tr>
+    <tr><td>sanity check</td><td>合理性檢查。用已知事實驗證工具的輸出對不對</td></tr>
+    <tr><td>f-string</td><td><code>f"你好 {name}"</code>，跟 PHP 的 <code>"你好 $name"</code> 一樣</td></tr>
+    <tr><td>標準庫</td><td>Python 內建、不用安裝的模組：os、re、json、time…</td></tr>
+  </table>
+
+  <h2>六、這個專案的地圖（已完成的部分）</h2>
+
+  <div class="card">
+<pre><code>入口（沒人 import）
+├── scanner.py      按捷徑跑的主程式，監聽 F2/F3/F4
+├── app.py          Flask 網頁，被 scanner 用 subprocess 另外叫起來
+└── updater.py      自動更新，獨立跑
+
+地基（被大家 import）
+├── config          ×8   最多人用
+├── data.items      ×5
+├── data.models     ×3
+├── version         ×3
+└── data.repository ×2
+
+零件
+├── ocr.engine
+└── ocr.parser</code></pre>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">整條輸送帶</h3>
+<pre><code>遊戲畫面截圖  →  認字(OCR)  →  存進資料庫  →  網頁給你看
+  scanner.py       ocr/          data/          app.py</code></pre>
+  </div>
+
+  <footer>
+    進度：第 1 步（看外觀）✔　第 2 步（找入口）✔　下一步：第 3 步 tracing
+  </footer>
+
+</div>
+</body>
+</html>

@@ -1,5 +1,10 @@
 # 版本更新紀錄
 
+## v7.0
+- **武陵新增第 13 項貨物「龍泡泡浮空艇貨組」（item_25）**：10/15 遊戲改版，武陵由 7+5 變成第 1 行 7 格 + 第 2 行 6 格。`data/items.py` 的 `WULING_GOODS` 尾端加一筆（`from: 2026-10-15`）；`image_matcher` 的 `WULING_CARD_POSITIONS['row2']['x_starts']` 補第 6 格 `1663`，比對範圍 `range(13, 25)` → `range(13, 26)`、參考圖載入 `range(1, 25)` → `range(1, 26)`、好友畫面的區域判定 `<= 24` → `<= 25`。`parser.py` 不含佈局假設（靠 OCR 名稱 + fuzzy match），無須更動；`app.py` 全走 `get_visible_item_names()`，自動涵蓋新物品。三份圖片資產：`data/item_images/item_25.png`（辨識用，裁切框與 live 同為 row1 第 7 格 `(1967,420)-(2237,660)`）、`data/item_images/friend/item_25.png`（好友畫面 `(500,400)-(780,680)`）、`static/images/items/item_25.png`（顯示用 254×254 RGBA 去背版，以泛洪填充從邊緣往內吃掉背景，附加「亮度 > 205」門檻避免沿陰影漸層爬進箱子，物品內部的白色因不與邊緣連通而保留）。**首次改版截圖帶 NEW 標籤，壓在辨識裁切框右上角**，已請使用者重截無標籤版本——標籤數日後消失會讓參考圖與 live 對不起來
+- **武陵每日配額改為 +230／上限 460**：`REGION_QUOTA_HISTORY['wuling']` 加 `2026-10-15` 一筆
+- **`init_db()` 的 items seed 改帶顯式 id**：`enumerate(ELASTIC_GOODS, start=1)`，`INSERT OR IGNORE` 補上 `id` 欄。原本靠 AUTOINCREMENT 自動配號，但被 IGNORE 的 row 也會消耗 `sqlite_sequence`（每次啟動 +N），新物品會拿到四位數 id 而撞爛 `image_matcher` 的 13-25 硬編碼範圍——v2.0／v3.0／v5.0 各踩過一次，每次都靠手動 SQL 補救。改後 `ELASTIC_GOODS` 的排列順序即 item_id，新物品只能往該地區清單尾端加
+
 ## v6.1.2
 - **啟動時自動補上捷徑圖示**：v6.1.1 是在 `EndfieldTracker.iss` 加 `IconFilename`，只有重跑 setup.exe 才生效；`updater` 只替換程式檔案、不碰捷徑，所以走自動更新的舊使用者 `app.ico` 明明已下載到位，桌面捷徑仍是空的圖示欄位（`,0`）。新增 `fix_shortcut_icons()`，掛在 `main()` 的 `init_db()` 之後，檢查桌面與開始功能表（全機／單人共四個位置）的 `終末地追蹤器.lnk`，透過 PowerShell 的 `WScript.Shell` COM 補寫 `IconLocation`，再以 `SHChangeNotify(SHCNE_ASSOCCHANGED)` 通知檔案總管重畫。兩道防線：`TargetPath` 必須等於本份安裝的 `start_scanner.bat`（不誤改其他程式的同名捷徑）、`IconLocation` 必須是空的（使用者自訂過就不覆蓋）。權限不足等任何例外一律靜默跳過，不影響啟動——全機範圍的捷徑需要管理員權限，而 `start_scanner.bat` 本來就以 `-Verb RunAs` 提權，故實際使用情境下寫得進去
 
