@@ -12,6 +12,8 @@ data/.recorded_at_tz_fixed
 data/friend_ocr_debug.log*
 data/scanner.log*
 data/shutdown.flag
+data/web_open.flag
+data/overlay_pos.json
 data/scanner.pids.json
 data/update_status.json
 data/update_applied.json

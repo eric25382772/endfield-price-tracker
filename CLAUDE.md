@@ -9,6 +9,7 @@
 - **Entry：** `scanner.py`（按 F2/F3 觸發掃描，同時把 Flask 起在 127.0.0.1:5000）
 - **核心模組：**
   - [scanner.py](scanner.py) — F2 自掃 / F3 好友掃，Queue + threading
+  - [overlay.py](overlay.py) — 遊戲內小視窗（tkinter 置頂），資料走 `/api/overlay`
   - [ocr/parser.py](ocr/parser.py) — OCR 文字解析（fuzzy match + x 座標配對）
   - [ocr/image_matcher.py](ocr/image_matcher.py) — 圖片比對（市場小卡 + 好友專用參考圖）
   - [data/repository.py](data/repository.py) — SQLite I/O；表：items, prices, friend_prices, stockpile, quotas

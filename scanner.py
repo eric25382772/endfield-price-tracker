@@ -26,6 +26,7 @@ import mss
 import mss.tools
 
 import updater
+import overlay
 from version import __version__
 from config import get_game_date, REGIONS, UPLOAD_FOLDER, UPLOAD_RETENTION_DAYS
 from data.models import init_db
@@ -54,6 +55,8 @@ f2_ready = threading.Event()  # F2 已成功完成過至少一次且目前未在
 SCAN_STATUS_FILE = Path(__file__).parent / 'data' / 'scan_status.json'
 # 網頁全部關閉時，Flask 端寫此旗標；scanner 讀到就結束整組程式
 SHUTDOWN_FILE = Path(__file__).parent / 'data' / 'shutdown.flag'
+# Flask 端：有網頁開著就存在，全部關掉立刻消失（無緩衝）。小視窗靠它跟著網頁一起收
+WEB_OPEN_FILE = Path(__file__).parent / 'data' / 'web_open.flag'
 # 記錄本輪 spawn 的 PID（scanner 自己 + Flask），供下次啟動清理沒關乾淨的殘留
 PID_REGISTRY_FILE = Path(__file__).parent / 'data' / 'scanner.pids.json'
 LOG_FILE = Path(__file__).parent / 'data' / 'scanner.log'
@@ -74,12 +77,29 @@ f2_pending_lock = threading.Event()  # set 表示已有 F2 在等網頁 modal �
 _drop_in_flight_f3 = threading.Event()  # 換區確認後通知 worker_f3 丟棄當前已 get 的截圖
 
 
+# 遊戲內小視窗：位置記憶檔，與掃描階段對應的提示字
+OVERLAY_POS_FILE = Path(__file__).parent / 'data' / 'overlay_pos.json'
+OVERLAY_PHASE_TEXT = {
+    'scanning_self': '正在讀市場價格',
+    'scanning_friend': '正在讀好友價格',
+    'scanning_stockpile': '正在讀囤貨',
+}
+
+
 def set_scan_status(phase, region=None, error=None):
     """寫入掃描狀態供網頁端輪詢（scanner 與 Flask 是不同行程，透過檔案交換）。
     error=None 表示不改變既有錯誤；空字串則清空。"""
     global _last_error
     if error is not None:
         _last_error = error
+    # 小視窗跟 scanner 同一個行程，直接通知就好，不必跟著檔案輪詢。
+    # 掃哪一區就顯示哪一區；掃囤貨就翻到囤貨那一頁（與網頁行為一致）。
+    overlay.set_scan_state(
+        region=region,
+        view=('stock' if phase == 'scanning_stockpile'
+              else ('price' if phase in ('scanning_self', 'scanning_friend') else None)),
+        status=OVERLAY_PHASE_TEXT.get(phase),
+        error=_last_error)
     try:
         SCAN_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
         data = {
@@ -136,14 +156,32 @@ def _patch_status_field(key, value):
         pass
 
 
+def write_f2_decision(action):
+    """寫下換區確認的結果。小視窗的按鈕走這裡，網頁的按鈕走 Flask，
+    最後寫的是同一個檔，所以兩邊按哪個都一樣。"""
+    try:
+        F2_DECISION_FILE.parent.mkdir(parents=True, exist_ok=True)
+        F2_DECISION_FILE.write_text(json.dumps({'action': action}), encoding='utf-8')
+    except Exception as e:
+        print(f"  [換區決定寫入失敗] {e}")
+
+
 def set_pending_f2(count):
-    """寫 pending_f2 欄位 → 網頁 modal 會自動彈出。"""
+    """寫 pending_f2 欄位 → 網頁 modal 會自動彈出；小視窗同步問同一題。"""
     _patch_status_field('pending_f2', {'count': count})
+    overlay.ask(
+        title='重新辨識地區？',
+        text=(f'還有 {count} 張好友價格截圖在排隊。\n'
+              f'丟棄它們改掃這一區的市場，還是保留、這次 F2 不執行？'),
+        on_yes=lambda: write_f2_decision('confirm'),
+        on_no=lambda: write_f2_decision('cancel'),
+        yes_label='丟棄並重掃', no_label='保留')
 
 
 def clear_pending_f2():
-    """移除 pending_f2 欄位 → 網頁 modal 自動關閉。"""
+    """移除 pending_f2 欄位 → 網頁 modal 自動關閉；小視窗的問題也一起收掉。"""
     _patch_status_field('pending_f2', None)
+    overlay.ask(None)
 
 
 LOG_MAX_BYTES = 5 * 1024 * 1024
@@ -521,6 +559,42 @@ def get_foreground_window_rect():
     }
 
 
+def _push_own_page_behind(win):
+    """把疊在截圖範圍上的追蹤器網頁視窗壓到最底層。回傳有沒有真的移動過。
+
+    截圖抓的是螢幕上那塊矩形的像素，不是遊戲本身，所以任何蓋在上面的視窗都會一起入鏡。
+    遊戲開視窗／無邊框模式時，網頁可能正好壓在市場畫面上 → OCR 讀到的是網頁 → 認不到價格。"""
+    user32 = ctypes.windll.user32
+    left, top = win['left'], win['top']
+    right, bottom = left + win['width'], top + win['height']
+    moved = False
+
+    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+    def _visit(hwnd, _):
+        nonlocal moved
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        length = user32.GetWindowTextLengthW(hwnd)
+        buf = ctypes.create_unicode_buffer(length + 1)
+        user32.GetWindowTextW(hwnd, buf, length + 1)
+        if OWN_PAGE_TITLE not in buf.value:
+            return True
+        r = ctypes.wintypes.RECT()
+        user32.GetWindowRect(hwnd, ctypes.byref(r))
+        if r.right <= left or r.left >= right or r.bottom <= top or r.top >= bottom:
+            return True  # 沒疊到截圖範圍就別動它
+        # HWND_BOTTOM=1；SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE=0x13（只改疊放順序，不搬、不縮、不搶焦點）
+        user32.SetWindowPos(hwnd, 1, 0, 0, 0, 0, 0x0013)
+        moved = True
+        return True
+
+    try:
+        user32.EnumWindows(_visit, 0)
+    except Exception as e:
+        print(f"  [網頁視窗壓底失敗] {e}")
+    return moved
+
+
 def capture_foreground_window():
     """截下目前最上層的視窗，回傳暫存檔路徑。"""
     win = get_foreground_window_rect()
@@ -532,6 +606,24 @@ def capture_foreground_window():
         update_scan_error('截到的是追蹤器網頁，不是遊戲畫面。請先點一下遊戲視窗再按熱鍵。')
         raise RuntimeError('截到的是追蹤器網頁，不是遊戲畫面')
 
+    if _push_own_page_behind(win):
+        print("  追蹤器網頁疊在遊戲畫面上，已壓到背景")
+        time.sleep(0.25)  # 等桌面重畫完，否則截到的還是網頁蓋著的舊畫面
+
+    # 小視窗自己也浮在遊戲上，疊到截圖範圍才需要先藏起來。
+    # 這裡能多快就多快：使用者連按熱鍵後會立刻切下一個畫面，慢一拍就拍到別的東西。
+    overlay_was_visible = overlay.hide_for_capture(win)
+    if overlay_was_visible:
+        time.sleep(0.05)
+
+    try:
+        return _grab(win)
+    finally:
+        overlay.restore_after_capture(overlay_was_visible)
+
+
+def _grab(win):
+    """把指定螢幕範圍存成 png，回傳檔案路徑。"""
     with mss.mss() as sct:
         monitor = {
             'left': win['left'],
@@ -693,6 +785,24 @@ def parse_remaining_quota(ocr_results, market_y):
 HOLDING_NOISE_RE = re.compile(r'持有|盈虧|總計|剩餘|小時後')
 
 
+def find_market_y(ocr_results):
+    """找出「市場」區塊標題的 y 座標，持有區就在它上方。
+
+    只認「市場」兩字自己成一塊的那個標題。持有區沒擺滿時，遊戲會在旁邊顯示
+    「尚未持有任何物資，去市場看看吧」—— 那句話裡也有「市場」，而且位置比
+    囤貨卡片還高，拿它當分界會把真正的卡片整個排除掉，F4 就讀不到任何囤貨。
+    """
+    for block in ocr_results:
+        if block['text'].strip() == '市場':
+            return block['center_y']
+    # 退路：OCR 把標題讀成「市場|」這類短字串時仍要認得，但句子不算
+    for block in ocr_results:
+        text = block['text'].strip()
+        if '市場' in text and len(text) <= 4:
+            return block['center_y']
+    return 0
+
+
 def parse_holding_area(ocr_results, market_y, items_db):
     """
     解析「市場」文字上方的持有區物品。
@@ -738,11 +848,7 @@ def scan_with_image_match(filepath):
 
     # OCR 文字已經有物品名稱+價格配對，優先使用
     # 只過濾掉「市場」標題上方（持有區）的結果
-    market_y = 0
-    for block in ocr_results:
-        if '市場' in block['text']:
-            market_y = block['center_y']
-            break
+    market_y = find_market_y(ocr_results)
 
     # 解析持有區（市場文字上方）
     holdings = parse_holding_area(ocr_results, market_y, items_db)
@@ -1300,8 +1406,16 @@ def _report_friend_gap():
                 'friend': len(rows) - len(missing),
                 'missing': missing,
             })
+            overlay.set_note(_gap_note('好友價', missing))
     except Exception as e:
         print(f"  [好友價缺漏檢查失敗] {e}")
+
+
+def _gap_note(what, missing):
+    """掃漏提醒的一行字。名字全列會把小視窗撐爆，所以只列前三項。"""
+    head = '、'.join(missing[:3])
+    more = f' 等 {len(missing)} 項' if len(missing) > 3 else ''
+    return f'還有 {len(missing)} 項沒掃到{what}：{head}{more}'
 
 
 def scan_friend_prices():
@@ -1327,6 +1441,7 @@ def process_stockpile(filepath):
     global _completed_count
     set_scan_status('scanning_stockpile', None, error='')
     region = None
+    done_region = None  # 真的存到囤貨的地區；掃完要叫網頁跳到這一區的囤貨檢視
     try:
         print("  OCR 辨識中...")
         ocr_results = recognize(filepath)
@@ -1334,11 +1449,7 @@ def process_stockpile(filepath):
         items_db = get_all_items()
 
         # 找「市場」標題的 y，持有區在它上方
-        market_y = 0
-        for block in ocr_results:
-            if '市場' in block['text']:
-                market_y = block['center_y']
-                break
+        market_y = find_market_y(ocr_results)
 
         holdings = parse_holding_area(ocr_results, market_y, items_db)
         if not holdings:
@@ -1362,6 +1473,7 @@ def process_stockpile(filepath):
             if not r:
                 continue
             upsert_stockpile(h['item_id'], h['price'], r, game_date=game_date)
+            done_region = r
             saved += 1
             print(f"  >> [囤貨] {h['item_name']}: {h['price']}")
 
@@ -1381,6 +1493,10 @@ def process_stockpile(filepath):
         _completed_count += 1
         set_scan_status('idle')
         # set_scan_status 會整份覆寫，所以缺漏一定要等它寫完才補上去
+        if done_region:
+            # 掃描中的 scanning_stockpile 階段只閃一瞬間，網頁 1.5 秒才輪詢一次常常接不到，
+            # 所以把「跳到哪一區的囤貨」留成狀態欄位，reload 前後都讀得到。
+            _patch_status_field('stock_view', {'region': done_region, 'seq': _completed_count})
         _report_stock_gap(region)
 
 
@@ -1397,6 +1513,7 @@ def _report_stock_gap(region):
                 'total': len(rows),
                 'missing': missing,
             })
+            overlay.set_note(_gap_note('好友價', missing))
     except Exception as e:
         print(f"  [囤貨比價檢查失敗] {e}")
 
@@ -1415,16 +1532,35 @@ def scan_stockpile():
 
 
 def watchdog_web_closed():
-    """Flask 端偵測到網頁全部關閉會寫 shutdown.flag，讀到就觸發整組收工。"""
+    """Flask 端偵測到網頁全部關閉會寫 shutdown.flag，讀到就觸發整組收工。
+
+    順便看 web_open.flag：那個沒有 8 秒緩衝，網頁一關就消失，
+    小視窗靠它跟著網頁一起收掉（整組收工仍是 8 秒後才發生）。"""
+    pages_open = True
+    closed_since = None
     while not _shutdown_event.is_set():
         try:
             if SHUTDOWN_FILE.exists():
                 print("\n網頁已關閉，自動結束掃描器...")
                 _shutdown_event.set()
                 return
+
+            if WEB_OPEN_FILE.exists():
+                closed_since = None
+                if not pages_open:
+                    pages_open = True
+                    overlay.set_pages_open(True)
+            else:
+                # 掃完一次網頁會自己重整，中間會短暫斷線。緩衝取 0.4 秒：
+                # 本機重整大多 0.2 秒內就接回來，再短小視窗會跟著閃。
+                if closed_since is None:
+                    closed_since = time.time()
+                elif pages_open and time.time() - closed_since >= 0.4:
+                    pages_open = False
+                    overlay.set_pages_open(False)
         except Exception:
             pass
-        time.sleep(1)
+        time.sleep(0.15)
 
 
 def watchdog_update_request():
@@ -1556,13 +1692,7 @@ def main():
 
     _purge_old_uploads()
 
-    # 清掉上一輪殘留的收工旗標，避免一啟動就被誤判關閉
-    try:
-        if SHUTDOWN_FILE.exists():
-            SHUTDOWN_FILE.unlink()
-    except Exception:
-        pass
-    # 同理清掉殘留的更新請求，避免剛啟動就被上一輪的舊請求觸發
+    # 清掉殘留的更新請求，避免剛啟動就被上一輪的舊請求觸發
     try:
         if updater.REQUEST_FILE.exists():
             updater.REQUEST_FILE.unlink()
@@ -1580,6 +1710,7 @@ def main():
     print("  F2  = 掃描自己的市場價格")
     print("  F3  = 掃描好友的市場價格")
     print("  F4  = 掃描目前持有（囤貨）")
+    print("  F6  = 顯示／隱藏遊戲內小視窗")
     print("  Ctrl+Shift+Q = 結束程式")
     print()
     print("  * 區域自動偵測（不需手動切換）")
@@ -1617,13 +1748,24 @@ def main():
     t3.start()
     t4.start()
 
+    # 遊戲內小視窗：掛在熱鍵之後，開不起來也不影響掃描
+    overlay.start(OVERLAY_POS_FILE)
+
     keyboard.on_press_key('f2', lambda _: scan_my_prices())
     keyboard.on_press_key('f3', lambda _: scan_friend_prices())
     keyboard.on_press_key('f4', lambda _: scan_stockpile())
+    keyboard.on_press_key('f6', lambda _: overlay.toggle())
 
     # 熱鍵監聽：Ctrl+Shift+Q 觸發關閉
     threading.Thread(target=quit_hotkey_listener, daemon=True).start()
     # 關網頁自動收工：Flask 端偵測分頁全關會寫 shutdown.flag（SSE 長連線，不受背景 throttle 影響）
+    # 旗標在這裡才清：上一輪的 Flask 要 8 秒才會寫出旗標，太早清會被它補寫回來，
+    # 新的一輪就會「剛開起來就自己收工」。清完立刻開監看，中間沒有空窗。
+    try:
+        if SHUTDOWN_FILE.exists():
+            SHUTDOWN_FILE.unlink()
+    except Exception:
+        pass
     threading.Thread(target=watchdog_web_closed, daemon=True).start()
     # 網頁上的「立即更新並重啟」（自動更新失敗時的補救路徑）
     threading.Thread(target=watchdog_update_request, daemon=True).start()
@@ -1645,6 +1787,7 @@ def main():
         print("  [主流程例外] 掃描器即將結束，堆疊如下：")
         traceback.print_exc()
     finally:
+        overlay.stop()
         # 收工：無論正常關閉或例外，都殺整個 Flask 行程樹（debug reloader 子行程也要殺）
         if flask_process and flask_process.poll() is None:
             _kill_tree(flask_process.pid)

@@ -195,11 +195,22 @@
                 window.setCompareRegion(region);
             }
 
-            // v6.1 F4：掃完囤貨就把該區切到「囤貨」檢視。旗標留給 reload 後的頁面消化，
+            // F4：掃完囤貨就跳到該區的「囤貨」檢視。旗標留給 reload 後的頁面消化，
             // 因為掃完會 reload，直接切畫面會被沖掉。
-            if (phase === 'scanning_stockpile' && region) {
-                try { sessionStorage.setItem('compare_view_' + region, 'stock'); } catch (e) {}
-                if (window.setCompareView) window.setCompareView(region, 'stock');
+            // seq 記在 sessionStorage：同一次掃描只跳一次，之後手動切回當日價格不會又被拉走。
+            const sv = d.stock_view;
+            if (sv && sv.region) {
+                let seen = null;
+                try { seen = sessionStorage.getItem('stock_view_seq'); } catch (e) {}
+                if (seen !== String(sv.seq)) {
+                    try {
+                        sessionStorage.setItem('stock_view_seq', String(sv.seq));
+                        sessionStorage.setItem('compare_view_' + sv.region, 'stock');
+                    } catch (e) {}
+                    // 掃完的狀態裡 region 已被清成 null，地區分頁要靠這裡自己跳
+                    if (window.setCompareRegion) window.setCompareRegion(sv.region);
+                    if (window.setCompareView) window.setCompareView(sv.region, 'stock');
+                }
             }
 
             // v6.1 掃漏提醒：同一份缺漏清單只跳一次，補掃後清單變了才會再跳

@@ -217,10 +217,10 @@ def _fmt_offset(current_date, offset):
     return (date.fromisoformat(current_date) + timedelta(days=offset)).strftime('%m/%d')
 
 
-@app.route('/compare')
-def compare():
-    """利潤比對頁面 - 自己 vs 好友價格"""
-    selected_date = request.args.get('date')
+def build_compare_data(selected_date=None):
+    """算出利潤比對要的全部資料。
+
+    遊戲內小視窗（/api/overlay）跟 /compare 共用這一份，兩邊的建議才不會各講各的。"""
     current_date = get_game_date()
     date = selected_date or current_date
     available = get_available_dates()
@@ -397,31 +397,36 @@ def compare():
     friend_gap = {'valley_iv': _friend_gap(valley_comparison),
                   'wuling':    _friend_gap(wuling_comparison)}
 
-    return render_template('compare.html',
-                           valley_comparison=valley_comparison,
-                           wuling_comparison=wuling_comparison,
-                           valley_stockpile=valley_stockpile,
-                           wuling_stockpile=wuling_stockpile,
-                           friend_gap=friend_gap,
-                           valley_best=valley_best,
-                           wuling_best=wuling_best,
-                           top_profitable=profitable[:5],
-                           valley_quota=valley_quota,
-                           wuling_quota=wuling_quota,
-                           region_quota=region_quota_for_date,
-                           profit_threshold=PROFIT_THRESHOLD,
-                           stockpile_pos_limit=STOCKPILE_POS_LIMIT,
-                           buyable_ratio=BUYABLE_RATIO,
-                           valley_best_id=(valley_best['item_id'] if valley_best else None),
-                           wuling_best_id=(wuling_best['item_id'] if wuling_best else None),
-                           valley_top_profit=(valley_best['profit'] if valley_best else 0),
-                           wuling_top_profit=(wuling_best['profit'] if wuling_best else 0),
-                           valley_cross_best=valley_cross_best,
-                           wuling_cross_best=wuling_cross_best,
-                           current_date=current_date,
-                           selected_date=selected_date,
-                           available_dates=available,
-                           has_backup=has_backup)
+    return dict(valley_comparison=valley_comparison,
+                wuling_comparison=wuling_comparison,
+                valley_stockpile=valley_stockpile,
+                wuling_stockpile=wuling_stockpile,
+                friend_gap=friend_gap,
+                valley_best=valley_best,
+                wuling_best=wuling_best,
+                top_profitable=profitable[:5],
+                valley_quota=valley_quota,
+                wuling_quota=wuling_quota,
+                region_quota=region_quota_for_date,
+                profit_threshold=PROFIT_THRESHOLD,
+                stockpile_pos_limit=STOCKPILE_POS_LIMIT,
+                buyable_ratio=BUYABLE_RATIO,
+                valley_best_id=(valley_best['item_id'] if valley_best else None),
+                wuling_best_id=(wuling_best['item_id'] if wuling_best else None),
+                valley_top_profit=(valley_best['profit'] if valley_best else 0),
+                wuling_top_profit=(wuling_best['profit'] if wuling_best else 0),
+                valley_cross_best=valley_cross_best,
+                wuling_cross_best=wuling_cross_best,
+                current_date=current_date,
+                selected_date=selected_date,
+                available_dates=available,
+                has_backup=has_backup)
+
+
+@app.route('/compare')
+def compare():
+    """利潤比對頁面 - 自己 vs 好友價格"""
+    return render_template('compare.html', **build_compare_data(request.args.get('date')))
 
 
 ITEM_IMAGES_DIR = Path(__file__).parent / 'data' / 'item_images'
@@ -643,6 +648,76 @@ def api_status():
         return jsonify(phase='idle', region=None)
 
 
+# 小視窗的排序：必買／建議囤貨 → 可買 → 低利潤、持平 → 別買 → 虧損 → 缺好友價
+OVERLAY_ORDER = {'best': 0, 'stock': 0, 'good': 1, 'meh': 2, 'wait': 3, 'bad': 4, 'none': 5}
+
+
+def _overlay_advice(r, best_id, top_profit):
+    """當日價格的一句話建議。字句與 compare.html 的「建議」欄一致，兩邊不可各講各的。"""
+    if r.get('show_wait'):
+        return '別買', 'wait'
+    if r.get('profit') is None:
+        return '缺好友價', 'none'
+    if r['item_id'] == best_id and r['profit'] >= PROFIT_THRESHOLD:
+        return '必買', 'best'
+    if top_profit > 0 and r['profit'] >= top_profit * BUYABLE_RATIO:
+        return '可買', 'good'
+    if r['profit'] > 0:
+        return '低利潤', 'meh'
+    if r['profit'] == 0:
+        return '持平', 'meh'
+    return '虧損', 'bad'
+
+
+def _overlay_sell_advice(s):
+    """囤貨的一句話建議。字句與 compare.html 的囤貨表一致。"""
+    if s.get('stockpile_profit') is None:
+        return '缺好友價', 'none'
+    if s.get('still_rising'):
+        return '還會漲', 'wait'
+    if s['stockpile_profit'] >= PROFIT_THRESHOLD:
+        return '可賣', 'best'
+    return '先放著', 'meh'
+
+
+@app.route('/api/overlay')
+def api_overlay():
+    """遊戲內小視窗的資料：跟 /compare 同一份計算，所以建議永遠一致。
+
+    小視窗只在「掃描完成」或「使用者自己切換」時才打這支，不是每秒輪詢。"""
+    region = request.args.get('region')
+    if region not in ('valley_iv', 'wuling'):
+        region = 'valley_iv'
+    view = 'stock' if request.args.get('view') == 'stock' else 'price'
+
+    d = build_compare_data()
+    prefix = 'valley' if region == 'valley_iv' else 'wuling'
+    quota = d[f'{prefix}_quota']
+    items = []
+
+    if view == 'price':
+        best_id = d[f'{prefix}_best_id']
+        top_profit = d[f'{prefix}_top_profit'] or 0
+        for r in d[f'{prefix}_comparison']:
+            text, kind = _overlay_advice(r, best_id, top_profit)
+            if r.get('stockpile_pick'):
+                text, kind = '建議囤貨', 'stock'
+            items.append({'name': r['name_cn'], 'profit': r['profit'],
+                          'advice': text, 'kind': kind})
+    else:
+        for s in d[f'{prefix}_stockpile']:
+            text, kind = _overlay_sell_advice(s)
+            items.append({'name': s['name_cn'], 'profit': s.get('stockpile_profit'),
+                          'advice': text, 'kind': kind})
+
+    # 照「該不該買」分組排，同組內利潤高的在前：視窗拉小時最該動手的要在看得到的位置
+    items.sort(key=lambda i: (OVERLAY_ORDER.get(i['kind'], 9), -(i['profit'] or 0)))
+
+    return jsonify(region=region, view=view, items=items,
+                   remaining=(quota or {}).get('remaining'),
+                   max_quota=(d['region_quota'].get(region) or {}).get('max'))
+
+
 F2_DECISION_FILE = Path(__file__).parent / 'data' / 'f2_decision.json'
 
 
@@ -678,10 +753,30 @@ def api_f2_cancel():
 # 用長連線而非輪詢心跳，是因為全螢幕玩遊戲時瀏覽器會 throttle 背景分頁的計時器，
 # 舊心跳因此誤判自關（v4.2 前已移除）；長連線不受 throttle 影響，只有真正關閉才會斷。
 SHUTDOWN_FILE = Path(__file__).parent / 'data' / 'shutdown.flag'
+# 「現在有沒有網頁開著」：連上就建檔、全關就刪檔，沒有緩衝。
+# 收工要等 8 秒確認（怕是 reload），但遊戲內小視窗要跟著網頁一關就消失，所以另外給它這個即時記號。
+WEB_OPEN_FILE = Path(__file__).parent / 'data' / 'web_open.flag'
 SSE_GRACE = 8.0
+# 多久往網頁丟一次訊號。分頁關掉是靠「下一次丟不出去」才發現的，
+# 所以這個間隔就是偵測延遲的下限 —— 原本 5 秒，關了網頁小視窗要等 5 秒才消失。
+# 本機連線，每 0.5 秒一個註解字串的成本可以忽略。
+SSE_PING = 0.5
 _sse_lock = threading.Lock()
 _sse_clients = 0
 _sse_grace_timer = None
+
+
+def _set_web_open(is_open):
+    try:
+        if is_open:
+            WEB_OPEN_FILE.write_text('1', encoding='utf-8')
+        elif WEB_OPEN_FILE.exists():
+            WEB_OPEN_FILE.unlink()
+    except Exception:
+        pass
+
+
+_set_web_open(False)   # 行程剛起來時還沒有任何分頁
 
 
 def _request_shutdown():
@@ -705,15 +800,17 @@ def api_alive():
             if _sse_grace_timer is not None:
                 _sse_grace_timer.cancel()
                 _sse_grace_timer = None
+        _set_web_open(True)
         try:
             yield ': connected\n\n'
             while True:
-                time.sleep(5)
+                time.sleep(SSE_PING)
                 yield ': ping\n\n'  # keepalive；下次寫入若對方已關會拋錯 → 進 finally
         finally:
             with _sse_lock:
                 _sse_clients -= 1
                 if _sse_clients <= 0:
+                    _set_web_open(False)
                     if _sse_grace_timer is not None:
                         _sse_grace_timer.cancel()
                     _sse_grace_timer = threading.Timer(SSE_GRACE, _request_shutdown)
