@@ -64,6 +64,7 @@ HINT = ('移動視窗：拖曳標題列\n'
         '縮放文字：Ctrl＋滾輪')
 
 _win = None  # 唯一實例；scanner 只透過模組函式操作
+on_note_dismiss = None  # 使用者按掉提醒時通知 scanner，讓網頁那邊的提醒一起關掉
 
 
 class _Overlay:
@@ -219,6 +220,7 @@ class _Overlay:
                 pass
         self._styles = alive
         self._row_h.clear()                 # 字級變了，列高要重量
+        self._rewrap_note()
         self.root.minsize(self._table_width() + 2, 1)
         self._save_settings()
 
@@ -281,6 +283,7 @@ class _Overlay:
         self._sb_span = (0, 0)
         self.msg_frame = None
         self.note_frame = None
+        self.note_lbl = None
         self.confirm_frame = None
 
         # 底下那條：狀態訊息。純顯示，不能拖（拖曳只在標題列）。
@@ -455,8 +458,18 @@ class _Overlay:
             return
         self.win_w, self.win_h = geo
         self.root.geometry(f'{geo[0]}x{geo[1]}')
+        self._rewrap_note()
         if self._rows_that_fit() != self.shown:   # 放得下的列數變了才重畫
             self._paint()
+
+    def _rewrap_note(self):
+        """視窗寬度或字級變了就重算提醒的折行寬度。整個重畫太重，只改這一個屬性。"""
+        if self.note_lbl is None:
+            return
+        try:
+            self.note_lbl.configure(wraplength=self._note_wrap())
+        except Exception:
+            pass
 
     def _resize_end(self, e):
         if not self._resizing:
@@ -612,6 +625,7 @@ class _Overlay:
             if w is not None:
                 w.destroy()
                 setattr(self, attr, None)
+        self.note_lbl = None     # 跟著 note_frame 一起沒了
 
     def _hide_content(self):
         self._clear_temp()
@@ -703,21 +717,31 @@ class _Overlay:
         scan_region 是 None＝還沒判斷出地區，這時也算，免得資料顯示到錯的一區。"""
         return bool(self.status) and self.scan_region in (None, self.region)
 
+    def _note_wrap(self):
+        """提醒文字的折行寬度。要跟著視窗實際寬度走 —— 用固定值的話，
+        視窗拉寬後字還是折在原處（「還有 6」就被丟到上一行），拉窄後又會蓋掉 ✕。"""
+        return max(80, int(self.win_w or self._table_width()) - 46)
+
     def _draw_note(self):
         """掃漏提醒那類的黃字。不擋操作，按 ✕ 收掉，下次掃描又有漏才會再出現。"""
         tk = self.tk
         bar = self.note_frame = tk.Frame(self.body, bg=NOTE_BG)
         bar.pack(fill='x', before=self.table)
-        self._styled(tk.Label(bar, text=self.note, bg=NOTE_BG, fg=YELLOW, anchor='w',
-                              justify='left', padx=8, pady=5),
-                     -1, wrap=34).pack(side='left', fill='x', expand=True)
+        # ✕ 要先 pack：Tk 是先排先得，後排的才會被擠掉，關閉鈕不能是被犧牲的那個
         x = self._styled(tk.Label(bar, text='✕', bg=NOTE_BG, fg=YELLOW, padx=7), -1)
         x.pack(side='right')
+        self.note_lbl = self._styled(
+            tk.Label(bar, text=self.note, bg=NOTE_BG, fg=YELLOW, anchor='w',
+                     justify='left', padx=8, pady=5, wraplength=self._note_wrap()), -1)
+        self.note_lbl.pack(side='left', fill='x', expand=True)
         self._clickable(x, self._clear_note, NOTE_BG)
 
     def _clear_note(self):
         self.note = None
         self._paint()
+        # 提醒是同一件事的兩個顯示處，關掉一邊另一邊也要跟著關。寫檔另開執行緒，不卡住 Tk。
+        if on_note_dismiss:
+            threading.Thread(target=on_note_dismiss, daemon=True).start()
 
     def _draw_confirm(self):
         """要使用者二選一的問題。不做成這樣的話，人在遊戲裡就得切出去點網頁。"""
@@ -766,15 +790,6 @@ class _Overlay:
             self.foot.configure(text='選一個才會繼續', fg=YELLOW)
             return
 
-        # 掃描中不蓋掉表格：跟網頁一樣，已經掃到的照常顯示，邊掃邊填。
-        # 只有「連一筆資料都還沒有」才整頁顯示辨識中，不然會是一片空白。
-        if self._scanning_here() and not (self.data or {}).get('items'):
-            self._hide_content()
-            self._msg('辨識中…', self.status)
-            self.quota_lbl.configure(text='')
-            self.foot.configure(text='', fg=MUT)
-            return
-
         want = (self.region, self.view)
         threading.Thread(target=self._fetch, args=(want,), daemon=True).start()
 
@@ -808,7 +823,11 @@ class _Overlay:
 
         if data is None:
             self.table.pack_forget()
-            self._msg('連不上追蹤器', '請確認追蹤器還開著')
+            # 掃描中要資料偶爾會逾時（OCR 正忙），別把它講成追蹤器掛了
+            if self._scanning_here():
+                self._msg('辨識中…', self.status)
+            else:
+                self._msg('連不上追蹤器', '請確認追蹤器還開著')
             return
 
         if self._scanning_here():
@@ -825,7 +844,11 @@ class _Overlay:
                 fg=(DOWN if show_quota and q >= m else MUT))
 
         items = data.get('items') or []
-        if not items:
+        if not items and self._scanning_here():
+            self.table.pack_forget()
+            # 還沒掃到任何一筆，這時才整頁顯示辨識中；掃到之後就換成表格邊掃邊填
+            self._msg('辨識中…', self.status)
+        elif not items:
             self.table.pack_forget()
             # 指引文字跟網頁的空白表格一致（compare.html 的導引區）；
             # 操作說明只在完整模式附上 —— 精簡模式本來就是要小，不該被說明撐大

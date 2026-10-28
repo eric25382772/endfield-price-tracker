@@ -530,6 +530,21 @@
         bootstrap.Modal.getOrCreateInstance(document.getElementById('gapModal')).show();
     }
 
+    // 提醒在網頁與遊戲內小視窗各顯示一份，關掉一邊另一邊要跟著關。
+    // hideGap 是被小視窗那邊關掉才呼叫的，這種情況不必再回報一次，否則兩邊互推。
+    var modalEl = document.getElementById('gapModal');
+    var closedByOverlay = false;
+    modalEl.addEventListener('hidden.bs.modal', function () {
+        if (closedByOverlay) { closedByOverlay = false; return; }
+        fetch('/api/gap_dismiss', { method: 'POST' }).catch(function () {});
+    });
+    window.hideGap = function () {
+        // 本來就沒開著就什麼都別做：hide() 不會觸發 hidden 事件，旗標會留在原地誤殺下一次
+        if (!modalEl.classList.contains('show')) return;
+        closedByOverlay = true;
+        bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+    };
+
     // F3：市場掃到 N 項，好友價格少了幾項
     window.showFriendGap = function (region, market, friend, missing) {
         showGap('friend_' + region,

@@ -740,6 +740,20 @@ def api_f2_confirm():
     return jsonify(ok=ok)
 
 
+GAP_DISMISS_FILE = Path(__file__).parent / 'data' / 'gap_dismiss.flag'
+
+
+@app.route('/api/gap_dismiss', methods=['POST'])
+def api_gap_dismiss():
+    """使用者關掉網頁的掃漏提醒。scanner 讀到旗標後會把小視窗那份也收掉。"""
+    try:
+        GAP_DISMISS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        GAP_DISMISS_FILE.write_text('1', encoding='utf-8')
+        return jsonify(ok=True)
+    except Exception:
+        return jsonify(ok=False)
+
+
 @app.route('/api/f2_cancel', methods=['POST'])
 def api_f2_cancel():
     """使用者按 modal「取消」按鈕。scanner 會放棄這次 F2，保留 f3_queue。"""

@@ -234,6 +234,8 @@
                 }
             } else if (!sig) {
                 lastGapSig = null;
+                // 缺漏清單沒了＝在小視窗按掉了（或已補掃完），這邊的提醒視窗也關掉
+                if (window.hideGap) window.hideGap();
             }
             const errorBanner = document.getElementById('scan-error-banner');
             const err = d.error || '';

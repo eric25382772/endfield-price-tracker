@@ -68,6 +68,9 @@ _completed_count = 0  # 每完成一張截圖處理 +1，網頁偵測此計數�
 # 因此要「佇列空 + 距離最後一次按 F3 滿 5 秒」兩個條件同時成立才算掃完。
 FRIEND_GAP_IDLE_SEC = 5
 _last_f3_time = 0.0
+# 掃漏提醒在小視窗與網頁各顯示一份，關掉一邊另一邊要跟著關。
+# 網頁那邊關掉時由 Flask 寫這個旗標，scanner 讀到就收掉小視窗的提醒。
+GAP_DISMISS_FILE = Path(__file__).parent / 'data' / 'gap_dismiss.flag'
 
 
 _last_error = ''  # F2 失敗訊息；成功或其他階段清空
@@ -517,10 +520,22 @@ def show_splash():
         import gc
         gc.collect()
 
-    threading.Thread(target=run, daemon=True).start()
+    th = threading.Thread(target=run, daemon=True)
+    th.start()
     ready.wait(timeout=5)
+
+    def close():
+        """關掉提示視窗，而且要等它真的收完才回來。
+
+        不等的話，主流程幾毫秒後就會開第二個 Tk（遊戲內小視窗），
+        兩個 Tk 的建立與釋放撞在一起就是上面那個 Tcl_AsyncDelete ——
+        那是 abort，整個程式無聲消失，連錯誤訊息都沒有。
+        等待設上限，萬一收不掉也不能把啟動流程卡死。"""
+        msg_q.put(None)
+        th.join(timeout=2)
+
     return ((lambda text=None, percent=None, detail=None: msg_q.put((text, percent, detail))),
-            (lambda: msg_q.put(None)))
+            close)
 
 
 # 追蹤器網頁的 <title>（見 templates/base.html）；瀏覽器視窗標題會包含這串
@@ -1411,11 +1426,28 @@ def _report_friend_gap():
         print(f"  [好友價缺漏檢查失敗] {e}")
 
 
+def dismiss_gap_note():
+    """使用者在小視窗按掉掃漏提醒：把狀態裡的缺漏清單拿掉，網頁的提醒視窗就會跟著關。"""
+    _patch_status_field('friend_gap', None)
+    _patch_status_field('stock_gap', None)
+
+
+def watchdog_gap_dismiss():
+    """反方向：使用者在網頁關掉提醒時 Flask 會寫 gap_dismiss.flag，讀到就收掉小視窗的提醒。"""
+    while not _shutdown_event.is_set():
+        try:
+            if GAP_DISMISS_FILE.exists():
+                GAP_DISMISS_FILE.unlink()
+                dismiss_gap_note()
+                overlay.set_note(None)
+        except Exception:
+            pass
+        time.sleep(0.3)
+
+
 def _gap_note(what, missing):
-    """掃漏提醒的一行字。名字全列會把小視窗撐爆，所以只列前三項。"""
-    head = '、'.join(missing[:3])
-    more = f' 等 {len(missing)} 項' if len(missing) > 3 else ''
-    return f'還有 {len(missing)} 項沒掃到{what}：{head}{more}'
+    """掃漏提醒的一行字。缺哪幾項留給網頁列，小視窗只講還差幾項就夠。"""
+    return f'還有 {len(missing)} 項沒掃到{what}'
 
 
 def scan_friend_prices():
@@ -1750,6 +1782,7 @@ def main():
 
     # 遊戲內小視窗：掛在熱鍵之後，開不起來也不影響掃描
     overlay.start(OVERLAY_POS_FILE)
+    overlay.on_note_dismiss = dismiss_gap_note
 
     keyboard.on_press_key('f2', lambda _: scan_my_prices())
     keyboard.on_press_key('f3', lambda _: scan_friend_prices())
@@ -1769,6 +1802,13 @@ def main():
     threading.Thread(target=watchdog_web_closed, daemon=True).start()
     # 網頁上的「立即更新並重啟」（自動更新失敗時的補救路徑）
     threading.Thread(target=watchdog_update_request, daemon=True).start()
+    # 網頁上關掉掃漏提醒時，小視窗那份也要跟著收掉
+    try:
+        if GAP_DISMISS_FILE.exists():
+            GAP_DISMISS_FILE.unlink()
+    except Exception:
+        pass
+    threading.Thread(target=watchdog_gap_dismiss, daemon=True).start()
 
     # Pre-load OCR engine：熱鍵此時已可用，這段純粹先暖機讓第一次掃描不用等
     print("  正在載入 OCR 引擎（首次較慢）...")
