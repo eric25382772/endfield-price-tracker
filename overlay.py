@@ -20,7 +20,6 @@ ICON_PNG = Path(__file__).parent / 'static' / 'images' / 'app64.png'
 
 # 兩段顯示：完整 ↔ 縮成一個圖示（最小化）。按鈕上的字寫的是「按下去會變成什麼」。
 MODES = ('full', 'icon')
-MODE_BTN = {'full': '最小化', 'icon': ''}
 
 # 顏色：沿用網頁那套（近黑底 + 暗金 / 玉綠）
 BG = '#191919'
@@ -74,7 +73,6 @@ class _Overlay:
         self.pos_file = pos_file
         self.region = 'valley_iv'
         self.view = 'price'
-        self.visible = True
         self.status = None       # 掃描中的提示字，由 scanner 餵
         self.scan_region = None  # 正在掃的是哪一區（還沒判斷出來時是 None）
         self.error = ''
@@ -83,6 +81,7 @@ class _Overlay:
         # 預設收成懸浮球：浮動視窗的慣例是「預設最小化」，不該一開始就佔住畫面。
         # 掃描完成會自動展開（人按 F2 就是要看結果），之後記住使用者自己選的狀態。
         self.mode = 'icon'
+        self.stowed = False      # 按過 ✕ 就是 True：掃描不再自動展開（不存檔，下次啟動歸零）
         self._was_scanning = False
         self.data = None         # 最後一次抓到的資料
         self.rows = []           # 列元件的池子，重複使用；多的用 grid_remove 藏起來
@@ -132,11 +131,10 @@ class _Overlay:
         同時有多個置頂視窗時，是「最後被提到前面的那個」在最上層 ——
         遊戲切換畫面或重新取得焦點時有機會把小視窗壓下去。
         重新宣告用的是不搶焦點的方式，不會打斷遊戲操作。"""
-        if self.visible:
-            try:
-                self.root.attributes('-topmost', True)
-            except Exception:
-                pass
+        try:
+            self.root.attributes('-topmost', True)
+        except Exception:
+            pass
         self.root.after(TOPMOST_EVERY_MS, self._keep_topmost)
 
     # ---------- 字級 ----------
@@ -230,7 +228,7 @@ class _Overlay:
         self.outer = tk.Frame(self.root, bg=LINE, padx=1, pady=1)
         self.outer.pack(fill='both', expand=True)
 
-        # 標題列：地區切換 + 收合 + 關閉。整條可以拖著搬家（只有這條）
+        # 標題列：地區切換 + 收成球。整條可以拖著搬家（只有這條）
         bar = self.bar = tk.Frame(self.outer, bg=BG)
         bar.pack(fill='x')
         self.region_btns = {}
@@ -241,16 +239,7 @@ class _Overlay:
             self.region_btns[rid] = b
         close = self._styled(tk.Label(bar, text='✕', bg=BG, fg=MUT, padx=8, pady=3))
         close.pack(side='right')
-        self._clickable(close, self.hide, BG, tip='關閉（F6 可叫回）')
-        # 收回去的控制項就是那顆圖示本身（懸浮球的標準做法），不是一顆寫著「最小化」的字鈕
-        self.mode_btn = tk.Label(bar, bg=BG, padx=6, pady=2)
-        small = self._icon_img(2)
-        if small is not None:
-            self.mode_btn.configure(image=small)
-        else:
-            self._styled(self.mode_btn, -1).configure(text='▣', fg=MUT)
-        self.mode_btn.pack(side='right')
-        self._clickable(self.mode_btn, self.next_mode, BG, tip='縮成圖示；點圖示即可展開')
+        self._clickable(close, self.stow, BG, tip='收成懸浮球；點那顆球才會再展開')
         self._make_draggable(bar)
 
         # 檢視切換 + 剩餘配額
@@ -318,19 +307,18 @@ class _Overlay:
         self.icon_lbl.bind('<Leave>', lambda e: self._ball_hover(False), add='+')
         self._tip(self.icon_lbl, '點一下展開 · 可拖曳移動')
 
-    def _icon_img(self, shrink=1):
-        """追蹤器那顆圖示（shrink=2 是縮一半的小圖）。Tk 只吃 PNG，用專案裡轉好的那張。
+    def _icon_img(self):
+        """追蹤器那顆圖示。Tk 只吃 PNG，用專案裡轉好的那張。
 
         master 一定要指定：不指定的話 tkinter 會去找「預設的那個 Tk」，
         而那個很可能是啟動提示視窗留下的殘影，於是圖載不進來、只剩備用的文字。"""
         if not hasattr(self, '_icon_cache'):
-            self._icon_cache = {}
+            self._icon_cache = None
             try:
-                self._icon_cache[1] = self.tk.PhotoImage(master=self.root, file=str(ICON_PNG))
-                self._icon_cache[2] = self._icon_cache[1].subsample(2, 2)
+                self._icon_cache = self.tk.PhotoImage(master=self.root, file=str(ICON_PNG))
             except Exception as e:
                 print(f"  [小視窗圖示載入失敗] {e}")
-        return self._icon_cache.get(shrink)
+        return self._icon_cache
 
     # ---------- 搬家（只有標題列） ----------
     def _make_draggable(self, widget):
@@ -379,6 +367,7 @@ class _Overlay:
     def _icon_click(self, e):
         """圖示上『點一下』才是展開；拖著走不算。"""
         if not self._moved:
+            self.stowed = False   # 他自己點開了，掃描自動展開就恢復
             self.set_mode('full')
 
     def _ball_hover(self, on):
@@ -541,8 +530,10 @@ class _Overlay:
         self._draw_thumb()
 
     # ---------- 三段顯示 ----------
-    def next_mode(self):
-        self.set_mode(MODES[(MODES.index(self.mode) + 1) % len(MODES)])
+    def stow(self):
+        """✕：收成懸浮球，而且掃描也不准把它打開，直到使用者自己點那顆球。"""
+        self.stowed = True
+        self.set_mode('icon')
 
     def set_mode(self, mode, persist=True):
         # 球在螢幕右邊時，展開會被「拉回畫面內」往左推。收回去要放回原位，
@@ -590,7 +581,6 @@ class _Overlay:
         self.head.pack(fill='x')
         self.foot.pack(side='bottom', fill='x')
         self.body.pack(fill='both', expand=True)
-        self.mode_btn.configure(text=MODE_BTN[self.mode])
         self.offset = 0
         # 視窗永遠不會比表格窄：顯示訊息（表格收起來）時才不會縮成另一個寬度
         self.root.minsize(self._table_width() + 2, 1)
@@ -898,13 +888,9 @@ class _Overlay:
             self.refresh()
 
     def show(self):
-        self.visible = True
         self.root.deiconify()
         self.root.attributes('-topmost', True)
 
-    def hide(self):
-        self.visible = False
-        self.root.withdraw()
 
 
 # ===== 下面是 scanner 唯一會用到的介面 =====
@@ -955,20 +941,13 @@ def set_scan_state(region=None, view=None, status=None, error=''):
         if status:
             _win.note = None   # 又開始掃了，上一輪的缺漏清單先收掉，掃完會再算一次
             _win._was_scanning = True
-            if _win.mode == 'icon':
+            if _win.mode == 'icon' and not _win.stowed:
                 # 掃描一開始就展開，讓人看得到進度與結果。不存檔：這是程式自己開的，
                 # 不是使用者的選擇，下次啟動還是要回到他自己設定的那個狀態。
                 _win.set_mode('full', persist=False)
         elif _win._was_scanning:
             _win._was_scanning = False
         _win.refresh()
-    _call(apply)
-
-
-def toggle():
-    """F6：顯示 ↔ 隱藏。收合／圖示是視窗上那顆鈕的事，不走熱鍵。"""
-    def apply():
-        _win.hide() if _win.visible else _win.show()
     _call(apply)
 
 
@@ -983,7 +962,7 @@ def set_note(text):
 def ask(title=None, text='', on_yes=None, on_no=None, yes_label='確定', no_label='取消'):
     """在小視窗上問一個二選一的問題；title=None 代表把問題收掉。
 
-    問題一出現就把視窗叫回來：人就算用 F6 收起來了，也得看得到這個才知道卡在哪。"""
+    問題一出現就把視窗叫回來：人就算把它關掉了，也得看得到這個才知道卡在哪。"""
     def apply():
         _win.confirm = ({'title': title, 'text': text, 'yes': on_yes, 'no': on_no,
                          'yes_label': yes_label, 'no_label': no_label} if title else None)
@@ -996,11 +975,10 @@ def ask(title=None, text='', on_yes=None, on_no=None, yes_label='確定', no_lab
 def set_pages_open(is_open):
     """網頁全關就跟著收起來，網頁再開就回來。
 
-    不動 visible：那是使用者用 F6 表達的意願，網頁開關不該把它洗掉。"""
+    不動 mode／stowed：那是使用者自己選的展開狀態，網頁開關不該把它洗掉。"""
     def apply():
         if is_open:
-            if _win.visible:
-                _win.show()
+            _win.show()
         else:
             _win.root.withdraw()
     _call(apply)
@@ -1013,7 +991,7 @@ def hide_for_capture(rect=None):
     但快門必須快：使用者會連按熱鍵然後馬上切下一個畫面，這裡每多等一下，
     就多一分拍到「他已經切走的畫面」的機會（v7.0.1 踩過，好友價掃描失敗率飆到 58%）。
     所以沒疊到截圖範圍就完全不動，等待也設上限。"""
-    if _win is None or not _win.visible:
+    if _win is None:
         return False
     if rect and not _overlaps(rect):
         return False

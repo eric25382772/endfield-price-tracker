@@ -542,6 +542,23 @@ def show_splash():
 OWN_PAGE_TITLE = '彈性物資價格追蹤器'
 
 
+def _declare_dpi_aware():
+    """開工前先告訴 Windows「視窗尺寸給我真實像素就好」。
+
+    4K 開 200% 縮放時，沒宣告過的程式問到的尺寸是縮放後的一半（1920x1080），
+    但截圖是照真實像素抓的 → 只框到左上角四分之一，OCR 什麼都認不到。
+    mss 第一次被建立時自己會宣告，所以過去只有「每次開程式的第一次」會失敗 ——
+    那時尺寸早就量完了。要在量任何視窗之前先講，所以放在 main() 最前面。
+    shcore 是 Win8.1 之後才有，更舊的系統退回只分「有／沒有」的那支舊 API。"""
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)  # PROCESS_PER_MONITOR_DPI_AWARE
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception as e:
+            print(f"  [DPI 宣告失敗] {e}")
+
+
 def get_foreground_window_rect():
     """Get the foreground window's CLIENT area (純遊戲畫面) in screen coords.
 
@@ -574,42 +591,6 @@ def get_foreground_window_rect():
     }
 
 
-def _push_own_page_behind(win):
-    """把疊在截圖範圍上的追蹤器網頁視窗壓到最底層。回傳有沒有真的移動過。
-
-    截圖抓的是螢幕上那塊矩形的像素，不是遊戲本身，所以任何蓋在上面的視窗都會一起入鏡。
-    遊戲開視窗／無邊框模式時，網頁可能正好壓在市場畫面上 → OCR 讀到的是網頁 → 認不到價格。"""
-    user32 = ctypes.windll.user32
-    left, top = win['left'], win['top']
-    right, bottom = left + win['width'], top + win['height']
-    moved = False
-
-    @ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
-    def _visit(hwnd, _):
-        nonlocal moved
-        if not user32.IsWindowVisible(hwnd):
-            return True
-        length = user32.GetWindowTextLengthW(hwnd)
-        buf = ctypes.create_unicode_buffer(length + 1)
-        user32.GetWindowTextW(hwnd, buf, length + 1)
-        if OWN_PAGE_TITLE not in buf.value:
-            return True
-        r = ctypes.wintypes.RECT()
-        user32.GetWindowRect(hwnd, ctypes.byref(r))
-        if r.right <= left or r.left >= right or r.bottom <= top or r.top >= bottom:
-            return True  # 沒疊到截圖範圍就別動它
-        # HWND_BOTTOM=1；SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE=0x13（只改疊放順序，不搬、不縮、不搶焦點）
-        user32.SetWindowPos(hwnd, 1, 0, 0, 0, 0, 0x0013)
-        moved = True
-        return True
-
-    try:
-        user32.EnumWindows(_visit, 0)
-    except Exception as e:
-        print(f"  [網頁視窗壓底失敗] {e}")
-    return moved
-
-
 def capture_foreground_window():
     """截下目前最上層的視窗，回傳暫存檔路徑。"""
     win = get_foreground_window_rect()
@@ -620,10 +601,6 @@ def capture_foreground_window():
     if OWN_PAGE_TITLE in win['title']:
         update_scan_error('截到的是追蹤器網頁，不是遊戲畫面。請先點一下遊戲視窗再按熱鍵。')
         raise RuntimeError('截到的是追蹤器網頁，不是遊戲畫面')
-
-    if _push_own_page_behind(win):
-        print("  追蹤器網頁疊在遊戲畫面上，已壓到背景")
-        time.sleep(0.25)  # 等桌面重畫完，否則截到的還是網頁蓋著的舊畫面
 
     # 小視窗自己也浮在遊戲上，疊到截圖範圍才需要先藏起來。
     # 這裡能多快就多快：使用者連按熱鍵後會立刻切下一個畫面，慢一拍就拍到別的東西。
@@ -1705,6 +1682,7 @@ def worker_f4():
 
 def main():
     _setup_output()  # pythonw（無 console）時把輸出導到 log，避免 print 崩潰
+    _declare_dpi_aware()  # 要在量任何視窗、開任何 Tk 之前
 
     # 提示視窗最先建立：後面的 init_db／Flask／OCR 在乾淨機器上都可能慢，
     # 晚一步建立就會讓人以為程式沒反應（首次啟動尤其明顯）
@@ -1742,7 +1720,6 @@ def main():
     print("  F2  = 掃描自己的市場價格")
     print("  F3  = 掃描好友的市場價格")
     print("  F4  = 掃描目前持有（囤貨）")
-    print("  F6  = 顯示／隱藏遊戲內小視窗")
     print("  Ctrl+Shift+Q = 結束程式")
     print()
     print("  * 區域自動偵測（不需手動切換）")
@@ -1787,7 +1764,6 @@ def main():
     keyboard.on_press_key('f2', lambda _: scan_my_prices())
     keyboard.on_press_key('f3', lambda _: scan_friend_prices())
     keyboard.on_press_key('f4', lambda _: scan_stockpile())
-    keyboard.on_press_key('f6', lambda _: overlay.toggle())
 
     # 熱鍵監聽：Ctrl+Shift+Q 觸發關閉
     threading.Thread(target=quit_hotkey_listener, daemon=True).start()

@@ -1,5 +1,10 @@
 # 版本更新紀錄
 
+## v7.1.2
+- **修正高 DPI 螢幕每次開程式的第一次掃描必定失敗**：程式從未宣告 DPI awareness，4K 開 200% 縮放時 `GetClientRect` 回的是縮放後的 1920x1080，但 `mss` 是照真實像素抓 → 只框到畫面左上角四分之一，OCR 只拿到 13~16 個文字區塊而非 49 個，`未辨識到任何物品或價格`。`mss.mss()` 建立時自己會宣告一次，所以第二次按之後都正確——第一次的尺寸早在 `_grab()` 之前就量完了。新增 `_declare_dpi_aware()`（`shcore.SetProcessDpiAwareness(2)`，Win8.1 以前退回 `user32.SetProcessDPIAware()`），掛在 `main()` 最前面、量任何視窗與建立任何 Tk 之前。使用者回報的 log 裡 23 個 session 全中，本機 100% 縮放永遠重現不到
+- **移除 v7.1 的「截圖前把網頁壓到最底層」**：當初的回報（截圖拍到追蹤器網頁）其實是回報者自己後製把網頁疊上去的，並非程式問題。`_push_own_page_behind()` 連同 0.25 秒的重畫等待一併刪除——它造成的實際副作用是每次掃描都把使用者正在看的網頁推到背景。`capture_foreground_window()` 開頭「前景視窗就是追蹤器網頁」那道檢查是 v5.1.3 的，保留
+- **懸浮球移除 `F6` 熱鍵，標題列只留 `✕`**：`F6` 與遊戲本身功能衝突。`✕` 由「整個隱藏」改為「收成懸浮球，且掃描不再自動展開」（新增 `stowed` 旗標，不存檔；點那顆球展開即復原自動展開）。同時移除標題列那顆最小化圖示鈕——與 `✕` 行為重疊，只留一顆。連帶孤立的 `toggle()`、`_Overlay.hide()`、`visible` 旗標、`next_mode()`、`MODE_BTN`、`_icon_img()` 的 `shrink` 參數一併刪除（本版淨減 47 行）
+
 ## v7.1.1
 - **修正啟動時整個行程無聲 abort**：v7.1 的懸浮球是程式裡的第二個 Tk，而啟動提示視窗（`show_splash()`）是第一個。`close_splash()` 只是往 queue 丟一個 None 就回傳，提示視窗還要再跑一輪 `poll`／`tick`（最多 110ms）才 `destroy`、收尾、`gc.collect()`；主流程幾毫秒後就 `overlay.start()` 建第二個 Tk，兩個 Tcl interpreter 的建立與釋放撞在一起 → `Tcl_AsyncDelete: async handler deleted by the wrong thread`，那是 abort 而非 Python 例外，整個程式瞬間消失、log 不留任何堆疊，熱鍵自然全部無反應。`close_splash()` 改成丟完訊號 `th.join(timeout=2)`，等提示視窗那條執行緒真的把 Tk 釋放完才回來（上限 2 秒，收不掉也不卡死啟動）。機器越慢越容易中，故本機重現不到。v5.1 建 splash 時就寫過同類註解，但當時全程式只有一個 Tk；v7.1 加入第二個 Tk 才讓這條路徑成立（更新流程那邊的 `time.sleep(0.4)` 防的是同一件事）
 - **修正懸浮球掃描時卡在「辨識中」**：`refresh()` 原本在「掃描中且手上沒有 items」時直接畫訊息就 `return`，根本不去打 `/api/overlay`。一旦 `self.data` 是空的（當天第一次掃，或某次 fetch 逾時被 `_render` 寫回 `None`），之後每次 refresh 都走同一條早退路徑，整輪掃描再也拿不到資料。改為掃描中一律發 fetch，「辨識中」的判斷下放到 `_paint()`：`data is None` 且正在掃改顯示辨識中（不再誤報「連不上追蹤器」），`items` 為空且正在掃才整頁顯示辨識中，掃到第一筆就換成表格邊掃邊填，與網頁行為一致
