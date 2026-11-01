@@ -1803,7 +1803,15 @@ def main():
         print("  [主流程例外] 掃描器即將結束，堆疊如下：")
         traceback.print_exc()
     finally:
-        overlay.stop()
+        # 收尾卡住一樣要死：v7.1 加了小視窗之後，關網頁雖然偵測得到，
+        # 但收 Tk 那段會卡住，後面殺 Flask／結束自己全部沒跑到，兩個行程留在背景。
+        # 這個計時器是最後一道防線，不管卡在哪一步，時間到就硬結束整個行程。
+        # 15 秒＝涵蓋下面三個 subprocess 各自的 5 秒上限，正常路徑不到 1 秒就走完了。
+        failsafe = threading.Timer(15, lambda: os._exit(0))
+        failsafe.daemon = True
+        failsafe.start()
+        # Flask 先殺、小視窗後收：Flask 變孤兒的話網頁還連得上（更糟），
+        # 小視窗沒收掉只是多一顆球留在畫面上，而且 os._exit 會一併帶走。
         # 收工：無論正常關閉或例外，都殺整個 Flask 行程樹（debug reloader 子行程也要殺）
         if flask_process and flask_process.poll() is None:
             _kill_tree(flask_process.pid)
@@ -1811,6 +1819,7 @@ def main():
         leftover = _pid_on_port(5000)
         if leftover and leftover != os.getpid() and _pid_is_python(leftover):
             _kill_tree(leftover)
+        overlay.stop()
         # 刪登記檔＝標記這一輪是乾淨退出的
         try:
             PID_REGISTRY_FILE.unlink()
@@ -1824,6 +1833,9 @@ def main():
                 ctypes.windll.user32.PostMessageW(hwnd, 0x0010, 0, 0)  # WM_CLOSE
         except Exception:
             pass
+        # Tk 與 torch 留下的執行緒會拖住正常退出（v7.1 起就是卡在這），直接結束行程。
+        # 上面該清的都清完了，log 是逐行寫入的，不會有東西沒寫出來。
+        os._exit(0)
 
 
 if __name__ == '__main__':

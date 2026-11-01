@@ -267,7 +267,7 @@
 
 ## 版本更新紀錄
 
-目前 GitHub 上架版本：**v7.1.2**
+目前 GitHub 上架版本：**v7.1.3**
 
 完整版本歷史詳見 **[CHANGELOG.md](CHANGELOG.md)**。
 

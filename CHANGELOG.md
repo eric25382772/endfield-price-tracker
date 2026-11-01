@@ -1,5 +1,8 @@
 # 版本更新紀錄
 
+## v7.1.3
+- **修正關網頁後整組程式沒有真的結束**：`shutdown.flag` 一直都讀得到（log 每次都印出「網頁已關閉，自動結束掃描器...」），卡住的是 `main()` 的 `finally` 收尾——v7.0 每次都印得出結尾的「程式結束。」，v7.1 加入懸浮球之後整份 log 再也沒出現過那一行，期間有一次留下 `Exception ignored in Image.__del__ ... RuntimeError: main thread is not in main loop`，指向 Tk 收尾。結果是 `_kill_tree(flask_process.pid)` 與「結束自己」全部沒跑到，scanner 與 Flask 兩個行程都留在背景（下次啟動靠 `reap_leftover_instances` 才被清掉，使用者端表現為「關了網頁程式還在」）。三處修改：①`overlay.stop()` 移到殺 Flask 之後——Flask 變孤兒的話 5000 埠還連得上，比懸浮球沒收掉嚴重，而且 `os._exit` 會一併帶走它；②`finally` 結尾改用 `os._exit(0)`，不等 Tk／torch 留下的執行緒走完正常退出流程（log 以 `buffering=1` 逐行寫入，不會漏內容）；③進 `finally` 就先掛一個 15 秒的 `threading.Timer(..., os._exit)` 當最後防線，涵蓋下面三個 `subprocess` 各自的 5 秒上限，任何一步卡住都保證行程會死。`Ctrl+Shift+Q` 走同一條收尾路徑，一併修好
+
 ## v7.1.2
 - **修正高 DPI 螢幕每次開程式的第一次掃描必定失敗**：程式從未宣告 DPI awareness，4K 開 200% 縮放時 `GetClientRect` 回的是縮放後的 1920x1080，但 `mss` 是照真實像素抓 → 只框到畫面左上角四分之一，OCR 只拿到 13~16 個文字區塊而非 49 個，`未辨識到任何物品或價格`。`mss.mss()` 建立時自己會宣告一次，所以第二次按之後都正確——第一次的尺寸早在 `_grab()` 之前就量完了。新增 `_declare_dpi_aware()`（`shcore.SetProcessDpiAwareness(2)`，Win8.1 以前退回 `user32.SetProcessDPIAware()`），掛在 `main()` 最前面、量任何視窗與建立任何 Tk 之前。使用者回報的 log 裡 23 個 session 全中，本機 100% 縮放永遠重現不到
 - **移除 v7.1 的「截圖前把網頁壓到最底層」**：當初的回報（截圖拍到追蹤器網頁）其實是回報者自己後製把網頁疊上去的，並非程式問題。`_push_own_page_behind()` 連同 0.25 秒的重畫等待一併刪除——它造成的實際副作用是每次掃描都把使用者正在看的網頁推到背景。`capture_foreground_window()` 開頭「前景視窗就是追蹤器網頁」那道檢查是 v5.1.3 的，保留
