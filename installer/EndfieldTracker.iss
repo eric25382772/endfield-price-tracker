@@ -4,7 +4,7 @@
 
 #define MyAppName "終末地彈性物資價格追蹤器"
 #define MyAppShortName "終末地追蹤器"
-#define MyAppVersion "7.1.3"
+#define MyAppVersion "7.2"
 #define MyAppPublisher "eric25382772"
 #define MyAppURL "https://github.com/eric25382772/endfield-price-tracker"
 #define MyAppExeName "start_scanner.bat"
@@ -84,11 +84,14 @@ Filename: "{tmp}\{#VCRedistInstaller}"; \
   BeforeInstall: VcBefore; AfterInstall: VcAfter
 
 ; 2. 升級 pip
-; 用完整路徑叫 python.exe，不靠 PATH：剛裝好的 Python 其 PATH 變更不會即時進到本安裝行程的環境，
-; 全新機器上 cmd 裡的 `python` 會找不到（甚至叫出 Microsoft Store 假 python），導致這幾步靜默失敗、什麼都沒裝
+; 一律用 python.exe 的完整路徑，絕不退回 PATH 上的 `python`：那可能是微軟商店的「應用程式執行別名」
+; （0 bytes 的假捷徑），用管理員身分執行會被 Windows 擋下，噴 CreateProcess 1920；
+; 就算抓到真的，也可能是我們沒驗證過的版本，套件會裝到錯的 Python 去。
+; 找不到可用的 Python 時整步跳過（HavePython），最後由 CurStepChanged 跳錯誤，不靜默假裝成功。
 Filename: "{code:PyExe}"; \
   Parameters: "-m pip install --upgrade pip"; \
   StatusMsg: "正在升級 pip..."; \
+  Check: HavePython; \
   Flags: runhidden waituntilterminated; \
   BeforeInstall: PipBefore; AfterInstall: PipAfter
 
@@ -96,13 +99,16 @@ Filename: "{code:PyExe}"; \
 Filename: "{code:PyExe}"; \
   Parameters: "-m pip install -r ""{app}\requirements.txt"""; \
   StatusMsg: "正在下載 Python 套件（約 5-10 分鐘，請耐心等待）..."; \
+  Check: HavePython; \
   Flags: runhidden waituntilterminated; \
   BeforeInstall: ReqBefore; AfterInstall: ReqAfter
 
 ; 4. 預先下載 EasyOCR 繁中模型
+; 套件沒裝成功就別浪費使用者 10 分鐘下載模型（一定也會失敗）
 Filename: "{code:PyExe}"; \
   Parameters: "-c ""import easyocr; easyocr.Reader(['ch_tra','en'], gpu=False)"""; \
   StatusMsg: "正在下載 OCR 中文模型（約 300-500 MB，請稍候）..."; \
+  Check: PackagesOK; \
   Flags: runhidden waituntilterminated; \
   BeforeInstall: OcrBefore; AfterInstall: OcrAfter
 
@@ -117,40 +123,94 @@ Filename: "{cmd}"; \
 ; 解除安裝時不刪 %LOCALAPPDATA%\EndfieldTracker（保留使用者的 prices.db / 學到的好友圖）
 
 [Code]
-function NeedsPython(): Boolean;
+// 套件是否真的裝起來了（ReqAfter 實測 import 的結果），決定要不要繼續下載 OCR 模型
 var
-  ResultCode: Integer;
+  PkgOK: Boolean;
+
+// 回傳 Dir 底下可用的 python.exe 完整路徑，不能用就回傳空字串。
+// WindowsApps 底下的是微軟商店的「應用程式執行別名」（0 bytes 的假捷徑），
+// 用管理員身分執行會被 Windows 拒絕（CreateProcess 1920），一律當作沒有。
+function PyIn(const Dir: String): String;
+var
+  Exe: String;
 begin
-  Result := not Exec('cmd.exe', '/C python --version', '', SW_HIDE,
-                     ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0);
+  Result := '';
+  if Dir = '' then
+    exit;
+  Exe := AddBackslash(Dir) + 'python.exe';
+  if (Pos('\windowsapps\', Lowercase(Exe)) = 0) and FileExists(Exe) then
+    Result := Exe;
 end;
 
-// 解析出可靠的 python.exe 完整路徑，供 pip / OCR 步驟使用（不靠會延遲更新的 PATH）
-function PyExe(Param: String): String;
+// 裝在非預設位置的 Python，從登錄檔問出安裝路徑
+function PyInReg(RootKey: Integer; const Ver: String): String;
 var
-  RegPath: String;
+  Dir: String;
 begin
-  // 1) 本流程 all-users 安裝的 Python 3.12 預設落點
-  Result := ExpandConstant('{commonpf}\Python312\python.exe');
-  if FileExists(Result) then
-    exit;
-  // 2) 使用者原本就裝過的 Python 3.12（登錄檔找安裝路徑）
-  if RegQueryStringValue(HKLM, 'SOFTWARE\Python\PythonCore\3.12\InstallPath', '', RegPath) then
+  Result := '';
+  if RegQueryStringValue(RootKey, 'SOFTWARE\Python\PythonCore\' + Ver + '\InstallPath', '', Dir) then
+    Result := PyIn(Dir);
+end;
+
+// 找出一個「真的存在、而且套件裝得起來」的 python.exe；找不到回傳空字串。
+// 絕不回傳 'python' 這種靠 PATH 解析的名字——那正是 1920 的來源。
+// 只認 3.11~3.14：torch 2.15 最低到 3.11、opencv-python 5.0 最高到 3.14，範圍外裝不起來。
+// 不用 `python --version` 問，問到的可能是假捷徑或我們不支援的版本，會騙我們跳過安裝 Python。
+function FindPython(): String;
+var
+  Vers: array[0..3] of String;
+  Dirs: array[0..3] of String;
+  I: Integer;
+begin
+  // 本安裝程式自帶 3.12，優先採用；其次才是使用者原本就有的其他可用版本
+  Vers[0] := '3.12'; Dirs[0] := 'Python312';
+  Vers[1] := '3.13'; Dirs[1] := 'Python313';
+  Vers[2] := '3.11'; Dirs[2] := 'Python311';
+  Vers[3] := '3.14'; Dirs[3] := 'Python314';
+  for I := 0 to 3 do
   begin
-    Result := AddBackslash(RegPath) + 'python.exe';
-    if FileExists(Result) then exit;
+    // all-users 安裝的預設落點（本流程用 InstallAllUsers=1 就會落在這）
+    Result := PyIn(ExpandConstant('{commonpf}') + '\' + Dirs[I]);
+    if Result <> '' then exit;
+    // 使用者自己裝的 per-user 預設落點
+    Result := PyIn(ExpandConstant('{localappdata}') + '\Programs\Python\' + Dirs[I]);
+    if Result <> '' then exit;
+    // 裝在別的地方
+    Result := PyInReg(HKLM, Vers[I]);
+    if Result <> '' then exit;
+    Result := PyInReg(HKCU, Vers[I]);
+    if Result <> '' then exit;
   end;
-  if RegQueryStringValue(HKCU, 'SOFTWARE\Python\PythonCore\3.12\InstallPath', '', RegPath) then
-  begin
-    Result := AddBackslash(RegPath) + 'python.exe';
-    if FileExists(Result) then exit;
-  end;
-  // 3) 最後退回 PATH（既有安裝且已在 PATH 上時可用）
-  Result := 'python';
+  Result := '';
+end;
+
+function NeedsPython(): Boolean;
+begin
+  Result := FindPython() = '';
+end;
+
+function HavePython(): Boolean;
+begin
+  Result := FindPython() <> '';
+end;
+
+function PackagesOK(): Boolean;
+begin
+  Result := HavePython() and PkgOK;
+end;
+
+// 供 [Run] 的 Filename 使用。正常情況搭配 Check: HavePython，走不到找不到的分支；
+// 真走到了也要給一個「一看就知道是什麼事」的假路徑，絕不能回傳 'python' 讓 Windows 自由發揮
+function PyExe(Param: String): String;
+begin
+  Result := FindPython();
+  if Result = '' then
+    Result := ExpandConstant('{app}\PYTHON-NOT-FOUND.exe');
 end;
 
 procedure InitializeWizard();
 begin
+  PkgOK := True;
   if NeedsPython() then
     idpAddFile('https://www.python.org/ftp/python/{#PythonVersion}/{#PythonInstaller}',
                ExpandConstant('{tmp}\{#PythonInstaller}'));
@@ -184,8 +244,35 @@ procedure VcAfter;    begin GSet(25);  end;
 procedure PipBefore;  begin GSet(25);  end;   // 升級 pip
 procedure PipAfter;   begin GSet(28);  end;
 procedure ReqBefore;  begin GSet(30);  end;   // 下載安裝套件（torch 等，最久）
-procedure ReqAfter;   begin GSet(82);  end;
+
+// 不看 pip 的回傳值，直接驗真正要的結果：套件 import 得起來嗎。
+// pip 中途失敗（斷網、防毒擋、版本沒輪子）在 [Run] 裡是靜默的，Inno 不會理回傳值，
+// 以前會一路跑到「安裝完成」，使用者雙擊捷徑才發現沒反應，而且查不出原因。
+procedure ReqAfter;
+var
+  Py: String;
+  Code: Integer;
+begin
+  GSet(82);
+  Py := FindPython();
+  PkgOK := (Py <> '') and
+           Exec(Py, '-c "import easyocr, cv2, flask"', '', SW_HIDE,
+                ewWaitUntilTerminated, Code) and (Code = 0);
+end;
 procedure OcrBefore;  begin GSet(82);  end;   // 下載 OCR 中文模型（約 300-500MB）
 procedure OcrAfter;   begin GSet(96);  end;
 procedure CopyBefore; begin GSet(96);  end;   // 複製好友參考圖種子
 procedure CopyAfter;  begin GSet(100); end;
+
+// 裝壞了就明講。以前不管中間失敗幾次都照樣顯示「安裝完成」，使用者只會覺得程式是壞的
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep <> ssPostInstall then
+    exit;
+  if not HavePython() then
+    MsgBox('Python 沒有安裝成功，所以套件也沒有裝，程式還不能用。' + #13#10#13#10 +
+           '請先關閉防毒軟體，再重新執行一次安裝程式。', mbError, MB_OK)
+  else if not PkgOK then
+    MsgBox('Python 套件沒有裝完整，程式還不能用。' + #13#10#13#10 +
+           '通常是安裝過程中網路中斷。請確認網路後，重新執行一次安裝程式。', mbError, MB_OK);
+end;

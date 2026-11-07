@@ -50,8 +50,14 @@ CURSORS = {'e': 'size_we', 's': 'size_ns', 'se': 'size_nw_se'}
 DEFAULT_FONT = 14        # 預設字級；9／11 級實測都太小
 MIN_FONT, MAX_FONT = 7, 40
 
+# v7.2：建議用色跟網頁 style.css 的 .ef-* 對齊。原本 stock 和 wait 同為 YELLOW，
+#       但「建議囤貨」和「別買」意思相反，同色根本分不出來。
+GO = '#3FB950'       # 現在動手：必買、可買、可賣
+WAIT = '#D29922'     # 等：別買、還會漲
+STOCK = '#A371F7'    # 囤貨
+
 KIND_COLOR = {
-    'best': GREEN, 'good': GREEN, 'stock': YELLOW, 'wait': YELLOW,
+    'best': GO, 'good': GO, 'stock': STOCK, 'wait': WAIT,
     'meh': MUT, 'bad': DOWN, 'none': MUT,
 }
 REGION_LABEL = {'valley_iv': '四號谷地', 'wuling': '武陵'}

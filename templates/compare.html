@@ -6,38 +6,54 @@
 {% macro suggestion_badge(item, region_best_id, region_top_profit) %}
     {# v3.2 / v4.0.1:
        - 必買：同區當日最高利潤 且 利潤 >= profit_threshold（爛日子最高也不到門檻 → 掉成「可買」）
-       - 別買：該物品明日預測利潤 > 同區今日最高利潤 × wait_gain_ratio + 信心度 + 配額未滿（= 今天先別買、明天再買）
+       - 別買：該物品「本週剩下的日子」最佳預測利潤 > 同區今日最高利潤 × wait_gain_ratio + 配額未滿
+               （v7.2 前只看明天一天；不跨過週日，因為下週一會重新抽模板）
        - 建議囤貨：每區只留一個 = 合格物品中「天花板 - 買價」最大者（合格判斷見 app.py _mark_stockpile）
        必買/可買 與 建議囤貨 可同時出現，由使用者決定要囤還是現賣。
     #}
     {# show_wait 由 app.py _mark_row_flags 算好（底色也要用同一份判斷）：
        v3.2 補「該物品今日有正利潤 + 同區當日已有基準」前提，避免空白時誤掛；
        v4.0.1：該物品可囤（買低+會漲）時不喊別買（兩者邏輯相反） #}
+    {# v7.2：本週買價鎖定後，「別買」的提示直接寫哪天最便宜，信心百分比拿掉（已經是確定值）。
+       沒鎖定時維持原樣。配色見 style.css 的 .ef-* 段。 #}
+    {# 有詳細說明的徽章一律加 has-tip（虛線底線＋問號游標，讓人知道可以移上去看）
+       ＋ tabindex（Bootstrap tooltip 要能聚焦才叫得出來，鍵盤使用者也才讀得到）。 #}
     {% if item.show_wait %}
-        <span class="badge bg-warning text-dark" title="今天先別買，明天買更划算（用較不準的買進預測，僅供參考）。同區今日最高 +{{ region_top_profit }}，此物品明日預測 +{{ item.pred_profit }}">
-            &#9203; 別買 (信心 {{ (item.pred_confidence*100)|int }}%)
-        </span>
+        {% if item.week_locked %}
+            <span class="badge ef-wait has-tip" tabindex="0" data-bs-toggle="tooltip"
+                  data-bs-title="{% if item.today_is_cheapest %}本週後面幾天賣得更好{% else %}{{ item.week_best_buy_day }}會跌到 {{ item.week_best_buy }}{% endif %}">&#9203; 別買</span>
+        {% else %}
+            <span class="badge ef-wait has-tip" tabindex="0" data-bs-toggle="tooltip"
+                  data-bs-title="買價還算不出來，這是用歷史平均估的">&#9203; 別買 (信心 {{ (item.pred_confidence*100)|int }}%)</span>
+        {% endif %}
     {% elif item.profit is not none %}
         {% if item.item_id == region_best_id and item.profit >= profit_threshold %}
-            <span class="badge bg-success">必買</span>
+            {% if item.week_locked %}
+            <span class="badge ef-go has-tip" tabindex="0" data-bs-toggle="tooltip"
+                  data-bs-title="{% if item.today_is_cheapest %}{{ item.my_price }} 是本週最低買價{% else %}今天利潤最高，但{{ item.week_best_buy_day }}買價更低{% endif %}">必買</span>
+            {% else %}
+            <span class="badge ef-go">必買</span>
+            {% endif %}
         {% elif region_top_profit > 0 and item.profit >= region_top_profit * buyable_ratio %}
-            <span class="badge bg-info" title="同區最高 +{{ region_top_profit }} × {{ buyable_ratio }} 以上">可買</span>
+            <span class="badge ef-ok has-tip" tabindex="0" data-bs-toggle="tooltip"
+                  data-bs-title="同區今天最高是 +{{ region_top_profit }}">可買</span>
         {% elif item.profit > 0 %}
-            <span class="badge bg-warning text-dark">低利潤</span>
+            <span class="badge ef-mute">低利潤</span>
         {% elif item.profit == 0 %}
-            <span class="badge bg-secondary">持平</span>
+            <span class="badge ef-mute">持平</span>
         {% else %}
-            <span class="badge bg-danger">虧損</span>
+            <span class="badge ef-bad">虧損</span>
         {% endif %}
     {% else %}
         <span class="text-muted">-</span>
     {% endif %}
     {% if item.stockpile_pick %}
-        <br><span class="badge bg-warning text-dark mt-1" data-stockpile-pick
-                 title="本區囤到天花板能賺最多的選擇。買價 {{ item.my_price }} 落在史上 {{ item.my_low }}~{{ item.my_high }} 的 {{ item.stockpile_pos }}%（合格線 {{ stockpile_pos_limit }}%）；好友史上最高賣 {{ item.sell_ceiling }}（同區第 {{ item.sell_ceiling_rank }} 名），扣掉買價可賺 +{{ item.sell_ceiling - item.my_price }}；{{ item.stockpile_reason }}">建議囤貨</span>
+        <br><span class="badge ef-stock mt-1 has-tip" data-stockpile-pick tabindex="0" data-bs-toggle="tooltip"
+                 data-bs-title="好友最高賣過 {{ item.sell_ceiling }}">建議囤貨</span>
     {% endif %}
     {% if item.pred_thin %}
-        <br><span class="badge bg-secondary mt-1" title="此物品歷史樣本太少，預測信心 {{ (item.pred_confidence*100)|int }}%，相關建議僅供參考">&#9888; 資料不足，僅供參考</span>
+        <br><span class="badge ef-mute mt-1 has-tip" tabindex="0" data-bs-toggle="tooltip"
+                  data-bs-title="這個物品的紀錄還太少">&#9888; 資料不足，僅供參考</span>
     {% endif %}
 {% endmacro %}
 {% macro stockpile_table(rows) %}
@@ -82,10 +98,11 @@
                             <small class="text-muted">還沒掃好友價格</small>
                         {% elif item.still_rising %}
                             {# v4.1 峰值感知：D+1 預測仍高於今日 → 還在漲，建議持有；否則已達高點 → 可賣 #}
-                            <span class="badge bg-warning text-dark" title="明日預測仍高於今日，價格還在往本週高點走">&#9203; 還會漲，建議持有</span>
+                            <span class="badge ef-wait has-tip" tabindex="0" data-bs-toggle="tooltip"
+                                  data-bs-title="明天好友出價更高">&#9203; 還會漲，建議持有</span>
                             <br><small class="text-muted">預計 {{ item.fr_pred_max_date }} 高點</small>
                         {% elif item.stockpile_profit >= profit_threshold %}
-                            <span class="badge bg-success">可賣</span>
+                            <span class="badge ef-go">可賣</span>
                         {% else %}
                             <small class="text-muted">利潤未達門檻，先放著</small>
                         {% endif %}

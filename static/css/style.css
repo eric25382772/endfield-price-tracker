@@ -395,3 +395,39 @@ button, .btn, select, .ef-rtab, .ef-arrow, [role="button"] { cursor: pointer; }
 /* 鍵盤 Tab 過來的人也要看得出焦點在哪 */
 :focus-visible { outline: 2px solid var(--ef-yellow); outline-offset: 2px; }
 .ef-vbtn:focus-visible { outline-color: #fff; outline-offset: -3px; }
+
+/* ── v7.2 建議徽章配色：顏色代表「動作」，不是代表欄位 ──
+   原本 bg-warning 同時掛在 別買／低利潤／還會漲／建議囤貨 四個意思上，
+   bg-success 同時掛在 必買／可賣，在畫面上完全分不出來。
+   以下色值過 WCAG 文字對比與紅/綠/藍三種色盲模擬，最接近的兩色 ΔE=27（<15 才會混淆）。
+   同色代表同義：別買 與 還會漲 都是「等」，低利潤 與 持平 都是「不用理」。 */
+.ef-go    { background: #3FB950 !important; color: #0d1117 !important; }  /* 現在動手：必買、可賣 */
+.ef-ok    { background: transparent !important; color: #3FB950 !important;
+            border: 1px solid #3FB950; }                                  /* 次選：可買 */
+.ef-wait  { background: #D29922 !important; color: #0d1117 !important; }  /* 等：別買、還會漲 */
+.ef-stock { background: #A371F7 !important; color: #0d1117 !important; }  /* 囤貨 */
+.ef-bad   { background: #F85149 !important; color: #0d1117 !important; }  /* 虧損 */
+.ef-mute  { background: #484F58 !important; color: #E6EDF3 !important; }  /* 不用理 */
+
+/* ── v7.2 詳細說明：原生 title 換成 Bootstrap tooltip ──
+   原生 title 的問題：樣式是作業系統的（深色主題上很突兀）、要等約一秒才出現、
+   滑鼠移不上去、手機和鍵盤使用者完全讀不到。換成元件後才能套主題與即時顯示。
+   .has-tip = 「這裡有說明」的提示：虛線底線（和連結的實線區隔）＋問號游標。
+   沒有這個記號的話，多數人根本不會想到要把滑鼠移上去。 */
+.has-tip {
+    cursor: help;
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+    text-decoration-thickness: 1px;
+}
+.tooltip {
+    --bs-tooltip-bg: #3a3a3a;
+    --bs-tooltip-color: var(--ef-txt);
+    --bs-tooltip-opacity: 1;
+    --bs-tooltip-max-width: 240px;
+    --bs-tooltip-font-size: .85rem;
+    --bs-tooltip-padding-x: .7rem;
+    --bs-tooltip-padding-y: .45rem;
+}
+/* 中文整段置中很難讀，改靠左 */
+.tooltip-inner { text-align: left; line-height: 1.65; }

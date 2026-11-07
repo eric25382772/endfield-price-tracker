@@ -24,6 +24,7 @@ from data.repository import (
     get_items_by_region,
 )
 from tools.predictor import predict_series
+from tools.week_model import lock_week
 from version import __version__
 from release_notes import NOTES
 
@@ -87,6 +88,12 @@ def _attach_forecast(rows, region, current_date, hist_cache, buy_window=CROSS_BU
     fr_hist = {r['item_id']: get_friend_max_price_history(r['item_id'], days=60) for r in rows}
     hist_cache[region] = {'my': my_hist, 'fr': fr_hist}
     for r in rows:
+        # v7.2：先鎖定本週買價。極值要先取，lock_week 拿它當價格上下限。
+        ext = get_price_extremes(r['item_id'])
+        week = lock_week(my_hist[r['item_id']], current_date,
+                         lo=ext['my_low'], hi=ext['my_high'])
+        r['week_locked'] = week['locked']
+
         my_f = predict_series(my_hist[r['item_id']], n_future=7, from_date=current_date,
                               region_history=my_hist)
         fr_f = predict_series(fr_hist[r['item_id']], n_future=7, from_date=current_date,
@@ -96,12 +103,26 @@ def _attach_forecast(rows, region, current_date, hist_cache, buy_window=CROSS_BU
         r['my_pred'] = my_preds[0] if my_preds else None
         r['fr_pred'] = fr_preds[0] if fr_preds else None
         r['pred_profit'] = (r['fr_pred'] - r['my_pred']) if (r['my_pred'] and r['fr_pred']) else None
+
+        # v7.2：鎖定後「等下去能賺多少」改看本週剩下的每一天，不再只看明天。
+        # 不跨過週日 —— 下週一重新抽模板，買價算不出來。
+        if week['locked']:
+            idx = week['today_index']
+            gains = [fr_preds[k - 1] - week['week_prices'][idx + k]
+                     for k in range(1, 7 - idx) if k - 1 < len(fr_preds)]
+            r['pred_profit'] = max(gains) if gains else None
         r['pred_confidence'] = round(min(my_f['confidence'], fr_f['confidence']), 2)
         r['my_pred_confidence'] = round(my_f['confidence'], 2)
         r['fr_pred_confidence'] = round(fr_f['confidence'], 2)
         # v4.0.1：樣本太少（fallback 或信心過低）→ 標「資料不足，僅供參考」
-        r['pred_thin'] = (my_f['data_insufficient'] or fr_f['data_insufficient']
-                          or r['pred_confidence'] < DATA_THIN_CONFIDENCE)
+        # v7.2：本週買價鎖定時，買這側是算出來的，不該再被它的樣本數拖著喊資料不足；
+        #       只看好友那側（賣價永遠是估的）。
+        if week['locked']:
+            r['pred_thin'] = (fr_f['data_insufficient']
+                              or r['fr_pred_confidence'] < DATA_THIN_CONFIDENCE)
+        else:
+            r['pred_thin'] = (my_f['data_insufficient'] or fr_f['data_insufficient']
+                              or r['pred_confidence'] < DATA_THIN_CONFIDENCE)
 
         # v3.2 補：未來 3 天 my 最低（A 建議囤貨用）
         if my_preds:
@@ -116,12 +137,22 @@ def _attach_forecast(rows, region, current_date, hist_cache, buy_window=CROSS_BU
         #         個位數差距就會誤殺，且 50% 那條線是懸崖（49% 免檢查、51% 錙銖必較）。
         #         改成信心越低容差越大的斜坡：預測值本來就帶誤差，比較時給對應的緩衝。
         # v5.1.6: 從 _mark_stockpile 搬上來，讓「建議囤貨」和「跨日最佳」共用同一條判斷。
-        pred_min = r['my_pred_3day_min']
-        if pred_min is None or r.get('my_price') is None:
-            r['today_is_cheapest'] = True
+        # v7.2: 鎖定時改比「本週剩下的天數」。原本只看 3 天，會跨到下週去比一個
+        #       重新抽過、猜不到的價格，把週末的機會擋掉。鎖定後買價是算出來的，
+        #       不需要容差。
+        if week['locked'] and r.get('my_price') is not None:
+            r['week_best_buy'] = week['rest_min']
+            r['week_best_buy_day'] = _fmt_weekday(current_date, week['rest_min_offset'])
+            r['today_is_cheapest'] = r['my_price'] <= week['rest_min']
         else:
-            tol = pred_min * PRED_TOLERANCE_MAX * (1 - r['my_pred_confidence'])
-            r['today_is_cheapest'] = r['my_price'] <= pred_min + tol
+            r['week_best_buy'] = None
+            r['week_best_buy_day'] = None
+            pred_min = r['my_pred_3day_min']
+            if pred_min is None or r.get('my_price') is None:
+                r['today_is_cheapest'] = True
+            else:
+                tol = pred_min * PRED_TOLERANCE_MAX * (1 - r['my_pred_confidence'])
+                r['today_is_cheapest'] = r['my_price'] <= pred_min + tol
 
         # v3.2 補：未來 7 天 fr 最高（B 囤貨持有、C 跨日最佳用）
         if fr_preds:
@@ -158,7 +189,7 @@ def _attach_forecast(rows, region, current_date, hist_cache, buy_window=CROSS_BU
 
         # v5.1.5: 囤貨判斷改看全期極值 —— 今日買價落在該物品「史上最低~最高」的哪個位置（0=史上最便宜）。
         #       近 30 天 P25 對只有 25 天資料的新物品不穩，谷地更常整區樣本不足而退回寫死門檻。
-        ext = get_price_extremes(r['item_id'])
+        #       v7.2 起 ext 在迴圈開頭就取好（lock_week 要用），這裡直接沿用。
         r['my_low'], r['my_high'] = ext['my_low'], ext['my_high']
         r['sell_ceiling'] = ext['sell_ceiling']
         myp = r.get('my_price')
@@ -205,6 +236,19 @@ def _mark_stockpile(rows, region_top_profit, quota_row, region_max):
         else:
             pick['stockpile_reason'] = (f"未來預測賣 {pick['fr_pred_7day_max']} - 買 {pick['my_price']} "
                                         f"= +{pick['fr_pred_7day_max'] - pick['my_price']} > 同區今日最高 +{region_top_profit}")
+
+
+_WEEKDAYS = ['週一', '週二', '週三', '週四', '週五', '週六', '週日']
+
+
+def _fmt_weekday(current_date, offset):
+    """offset=0 → '今天'，offset>0 → '週六'。給本週買價的提示用。"""
+    if offset is None:
+        return None
+    if offset == 0:
+        return '今天'
+    from datetime import date, timedelta
+    return _WEEKDAYS[(date.fromisoformat(current_date) + timedelta(days=offset)).weekday()]
 
 
 def _fmt_offset(current_date, offset):
@@ -366,7 +410,10 @@ def build_compare_data(selected_date=None):
                 and top_profit and top_profit > 0
                 and r['pred_profit'] is not None
                 and r['pred_profit'] > top_profit * WAIT_GAIN_RATIO
-                and r['pred_confidence'] >= WAIT_MIN_CONFIDENCE
+                # v7.2: 鎖定後買價是確定值，只剩賣價需要信心門檻（原本是取兩者較低的，
+                #       買價信心會把確定的結果一起拉下來）。
+                and (r['fr_pred_confidence'] >= WAIT_MIN_CONFIDENCE if r.get('week_locked')
+                     else r['pred_confidence'] >= WAIT_MIN_CONFIDENCE)
                 and quota_not_full
                 and not r.get('stockpile_eligible')
             )

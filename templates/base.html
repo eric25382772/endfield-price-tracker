@@ -90,6 +90,21 @@
     </div>
     <script src="/static/vendor/bootstrap.bundle.min.js"></script>
     <script>
+    // v7.2：建議徽章的詳細說明改用 Bootstrap tooltip。
+    // 原本用原生 title：樣式是作業系統的（深色主題上很突兀）、要等一秒、滑鼠移不過去、
+    // 手機完全看不到。改成元件後可以套主題、立刻出現、鍵盤 Tab 也能叫出來。
+    (function () {
+        function initTips(root) {
+            root.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(function (el) {
+                if (!bootstrap.Tooltip.getInstance(el)) new bootstrap.Tooltip(el);
+            });
+        }
+        initTips(document);
+        // 價格改完會重畫徽章，新畫出來的也要掛上
+        document.addEventListener('ef:badges-updated', function (e) { initTips(e.target || document); });
+        // 不綁 Esc 關閉（無障礙規範建議的做法）：Esc 在遊戲裡有自己的用途，會打架。
+        // 說明框滑鼠移開就消失，對本工具來說夠用。
+    })();
     (function () {
         const PHASE_LABEL = {scanning_self: '我的價格', scanning_friend: '好友價格', scanning_stockpile: '囤貨'};
         // 還沒判斷出地區時的字樣：只有 F2 是真的在找地區，F3／F4 直接講它在辨識什麼

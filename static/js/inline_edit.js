@@ -39,25 +39,25 @@
         }
         var top = regionTopProfit(row);
         if (profit >= window.PROFIT_THRESHOLD && profit >= top) {
-            return '<span class="badge bg-success">必買</span>';
+            return '<span class="badge ef-go">必買</span>';
         }
         if (top > 0 && profit >= top * window.BUYABLE_RATIO) {
-            return '<span class="badge bg-info">可買</span>';
+            return '<span class="badge ef-ok">可買</span>';
         }
         if (profit > 0) {
-            return '<span class="badge bg-warning text-dark">低利潤</span>';
+            return '<span class="badge ef-mute">低利潤</span>';
         }
         if (profit === 0) {
-            return '<span class="badge bg-secondary">持平</span>';
+            return '<span class="badge ef-mute">持平</span>';
         }
-        return '<span class="badge bg-danger">虧損</span>';
+        return '<span class="badge ef-bad">虧損</span>';
     }
 
     // 綠底＝必買／建議囤貨，跟徽章同一份判斷（見 app.py _mark_row_flags）
     function updateRowClass(row, profit) {
         row.classList.remove('table-success', 'table-danger');
         var badgeCell = row.querySelector('.badge-cell');
-        if (badgeCell.querySelector('.badge.bg-success, [data-stockpile-pick]')) {
+        if (badgeCell.querySelector('.badge.ef-go, [data-stockpile-pick]')) {
             row.classList.add('table-success');
         } else if (profit !== null && profit !== undefined && profit < 0) {
             row.classList.add('table-danger');
@@ -178,6 +178,8 @@
                 badgeCell.appendChild(document.createElement('br'));
                 badgeCell.appendChild(stockpileBadge);
             }
+            // v7.2：重畫過的徽章要重新掛 tooltip（base.html 收這個事件）
+            badgeCell.dispatchEvent(new CustomEvent('ef:badges-updated', { bubbles: true }));
 
             // 更新整列的底色
             updateRowClass(row, data.profit);
