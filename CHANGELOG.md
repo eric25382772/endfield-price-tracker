@@ -1,5 +1,12 @@
 # 版本更新紀錄
 
+## v8.0
+- **武陵新增第 14 項貨物「天師椿機芯貨組」（item_26）**：11/25 遊戲改版，武陵由 7+6 變成第 1 行 7 格 + 第 2 行 7 格。`data/items.py` 的 `WULING_GOODS` 尾端加一筆（`from: 2026-11-25`）；`image_matcher` 的 `WULING_CARD_POSITIONS['row2']['x_starts']` 補第 7 格 `1967`，比對範圍 `range(13, 26)` → `range(13, 27)`、兩處參考圖載入 `range(1, 26)` → `range(1, 27)`、好友畫面的區域判定 `<= 25` → `<= 26`。`parser.py` 不含佈局假設、`app.py` 全走 `get_visible_item_names()`，均無須更動。三份圖片資產：`data/item_images/item_26.png`（辨識用，row2 第 5 格 `(1359,850)-(1629,1090)`；該框頂端 24 列會吃到上一列卡片的名稱條，以背景色填平，免得歷史頁顯示時出現別的物品名）、`data/item_images/friend/item_26.png`（好友畫面 `(500,400)-(780,680)`）、`static/images/items/item_26.png`（顯示用 254×254 RGBA 去背版）
+- **武陵每日配額改為 +245／上限 490**：`REGION_QUOTA_HISTORY['wuling']` 加 `2026-11-25` 一筆
+- **26 張物品顯示圖全面換成官方去背版**：原本 `static/images/items/item_1.png` ~ `item_16.png` 其實是 **WebP 被改名成 `.png`**（magic bytes `52 49 46 46`＝RIFF，2026-09 那次從 B 站 wiki 抓圖時抓到縮圖格式）。瀏覽器靠 content sniffing 照樣顯示，所以一直沒被發現，但畫質比真 PNG 差。重抓 wiki 的 21 張官方 254×254 透明 PNG（`allimages` API 要跟著 `continue.aicontinue` 翻頁，只抓第一頁只會拿到 11 張）覆蓋 item_1~21；item_22~26 線上沒有（fandom 也沒有），自行去背後統一成 254×254。**去背流程新增「只留最大連通塊」一步**：好友畫面圓框有斜線網底，線條比背景深，從邊緣往內的泛洪填充會被擋住，四個角落殘留 15 塊碎片共 1745px——物品美術本身是一整塊相連的，把小於最大塊 5% 的碎片全清掉即可
+- **掃描前的視窗檢查改為白名單**：原本只擋追蹤器自己的網頁（`OWN_PAGE_TITLE`），其餘一律放行。實際 log 裡掃到過 League of Legends 25 次、ShadowverseWB 9 次、BrownDust II 4 次，以及 LINE、YouTube、Chrome 與懸浮球自己（`tk (64x64)`）——每次都是白跑一趟 OCR。改為 `GAME_WINDOW_TITLES = ('Endfield', '终末地', '終末地')`，標題不含其一就擋下並提示「請先點一下遊戲視窗」。列入簡繁「终末地」是因為陸服客戶端標題與國際服不同，只認死 `Endfield` 會讓那邊完全掃不動
+- **`/compare` 的表格改用與懸浮球相同的排序**：新增 `_sort_by_advice()`，照 `OVERLAY_ORDER`（必買／建議囤貨 → 可買 → 低利潤、持平 → 別買 → 虧損 → 缺好友價）分組，同組內利潤高的在前；囤貨表同樣改用 `_overlay_sell_advice` 的分組。原本網頁走 `get_profit_comparison()` 的 `ORDER BY 利潤 DESC`、懸浮球走建議分組，同一列在兩邊位置不同，「建議囤貨」常落在表格中段而非最上面。`repository.py` 的 SQL 排序保留不動（它是基礎順序，`build_compare_data()` 之後再重排）
+
 ## v7.2
 - **新增本週買價鎖定（[tools/week_model.py](tools/week_model.py)）**：遊戲的彈性物資買價不是隨機的，而是 `價格[星期幾] = 模板基準[星期幾] × (1 + 模板係數 × ε[星期幾])`。每週由系統隨機抽 8 個模板之一，但 ε 是每帳號 × 每物品 × 每星期幾固定不變，所以用歷史資料反推出 ε 之後，本週掃到幾天就能判定是哪個模板，整週買價隨之確定。週一的 8 個模板會塌成 6 種價格（⑤⑥ 與 ⑦⑧ 各自同值同係數），通常掃完週一剩 1~2 個候選、掃完週二必定唯一。模板數字取自第三方分析儀 `endpa.netlify.app` 的原始碼，以本專案 `data/prices.db` 的 449 個完整週驗證，吻合 92.4%。下週一會重抽模板，故只鎖定本週、不跨過週日
 - **鎖定後的建議改看「本週剩下的每一天」**：`_attach_forecast()` 在鎖定時以 `week['rest_min']` 取代 `my_pred_3day_min`——原本固定看未來 3 天，週末會跨到下週去比一個重新抽過、根本算不出來的價格，把週末的機會擋掉。新增 `week_best_buy` / `week_best_buy_day`，讓「別買」徽章直接寫出哪天會跌到多少；`pred_profit` 也由「只比明天」改成取本週剩餘天數的最大價差。鎖定後買價是算出來的，比較時不再加容差

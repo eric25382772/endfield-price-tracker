@@ -538,8 +538,9 @@ def show_splash():
             close)
 
 
-# 追蹤器網頁的 <title>（見 templates/base.html）；瀏覽器視窗標題會包含這串
-OWN_PAGE_TITLE = '彈性物資價格追蹤器'
+# 遊戲視窗的標題。只認這些，其餘一律擋下。
+# 國際服是 'Endfield'；陸服標題含「终末地」，簡繁兩種都列，免得換服就掃不動。
+GAME_WINDOW_TITLES = ('Endfield', '终末地', '終末地')
 
 
 def _declare_dpi_aware():
@@ -596,11 +597,12 @@ def capture_foreground_window():
     win = get_foreground_window_rect()
     print(f"  截取視窗: {win['title']} ({win['width']}x{win['height']})")
 
-    # 截到追蹤器自己的網頁最危險：網頁上滿滿都是物品名與四位數數字，
-    # OCR 會信以為真，把畫面上的舊資料與日期當成市場價寫回資料庫。
-    if OWN_PAGE_TITLE in win['title']:
-        update_scan_error('截到的是追蹤器網頁，不是遊戲畫面。請先點一下遊戲視窗再按熱鍵。')
-        raise RuntimeError('截到的是追蹤器網頁，不是遊戲畫面')
+    # 只有遊戲視窗才送進 OCR。原本只擋追蹤器自己的網頁，其他視窗照樣放行，
+    # 實際 log 裡掃到過 League of Legends、LINE、Chrome、甚至懸浮球自己——白跑一趟。
+    # 截到追蹤器網頁更危險：上面滿滿都是物品名與四位數數字，OCR 會信以為真寫回資料庫。
+    if not any(t in win['title'] for t in GAME_WINDOW_TITLES):
+        update_scan_error('目前最上層的不是遊戲畫面。請先點一下遊戲視窗再按熱鍵。')
+        raise RuntimeError(f"截到的不是遊戲畫面：{win['title']}")
 
     # 小視窗自己也浮在遊戲上，疊到截圖範圍才需要先藏起來。
     # 這裡能多快就多快：使用者連按熱鍵後會立刻切下一個畫面，慢一拍就拍到別的東西。

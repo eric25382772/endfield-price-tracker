@@ -430,6 +430,17 @@ def build_compare_data(selected_date=None):
                     wuling_best['item_id'] if wuling_best else None,
                     wuling_best['profit'] if wuling_best else 0, wuling_quota)
 
+    # 表格順序與遊戲內小視窗統一：照「該不該買／該不該賣」分組，同組內利潤高的在前。
+    # 原本網頁照利潤高到低排、小視窗照建議排，同一列在兩邊位置不同，容易看錯。
+    _sort_by_advice(valley_comparison,
+                    valley_best['item_id'] if valley_best else None,
+                    valley_best['profit'] if valley_best else 0)
+    _sort_by_advice(wuling_comparison,
+                    wuling_best['item_id'] if wuling_best else None,
+                    wuling_best['profit'] if wuling_best else 0)
+    stockpile.sort(key=lambda s: (OVERLAY_ORDER.get(_overlay_sell_advice(s)[1], 9),
+                                  -(s.get('stockpile_profit') or 0)))
+
     # v6.1：囤貨改成掛在各自地區底下，不再是頁尾一張混在一起的卡片
     valley_stockpile = [s for s in stockpile if s['region'] == 'valley_iv']
     wuling_stockpile = [s for s in stockpile if s['region'] == 'wuling']
@@ -725,6 +736,14 @@ def _overlay_sell_advice(s):
     if s['stockpile_profit'] >= PROFIT_THRESHOLD:
         return '可賣', 'best'
     return '先放著', 'meh'
+
+
+def _sort_by_advice(rows, best_id, top_profit):
+    """照建議分組排序，同組內利潤高的在前。/compare 與 /api/overlay 共用同一套順序。"""
+    def key(r):
+        kind = 'stock' if r.get('stockpile_pick') else _overlay_advice(r, best_id, top_profit)[1]
+        return (OVERLAY_ORDER.get(kind, 9), -(r['profit'] or 0))
+    rows.sort(key=key)
 
 
 @app.route('/api/overlay')
